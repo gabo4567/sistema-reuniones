@@ -1,14 +1,19 @@
 const express = require('express');
 const {
+  findOrCreateClient,
+  getBusinessUserByEmail,
   getContactByPhone,
   getMeetingsByPhone,
   getMeetingByMeetLink,
+  createMeeting,
   updateMeeting
 } = require('../services/airtable.service');
 const { getActiveUsers } = require('../services/users.service');
 const {
   TIMEZONE,
+  addMinutesToTime,
   buildLocalDateTime,
+  createMeetEvent,
   getBusyTimes,
   getAvailableSlots
 } = require('../services/calendar.service');
@@ -277,6 +282,58 @@ function renderFieldRows(fields = {}) {
 function getMeetingTitle(record) {
   const fields = record?.fields || {};
   return fields.Nombre || fields['Tipo de Reunion'] || fields.Telefono || record?.id || 'Reunion';
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+}
+
+function isSlotBusy(startDateTime, endDateTime, busyTimes = []) {
+  const slotStart = new Date(startDateTime);
+  const slotEnd = new Date(endDateTime);
+
+  return busyTimes.some((busyRange) => {
+    const busyStart = new Date(busyRange.start);
+    const busyEnd = new Date(busyRange.end);
+    return slotStart < busyEnd && slotEnd > busyStart;
+  });
+}
+
+function normalizeSellerName(value) {
+  const sellerOptions = ['FLORENCIA', 'SILVINA', 'ITATI', 'SARITA', 'ORNELLA', 'LIZ', 'INES', 'Milbia'];
+  const normalizedValue = String(value || '').toLowerCase();
+
+  return sellerOptions.find((seller) => normalizedValue.includes(seller.toLowerCase())) || '';
+}
+
+async function getSellerNameFromUser(user) {
+  try {
+    const businessUser = await getBusinessUserByEmail(user.email);
+    const businessUserName = businessUser?.fields?.Nombre;
+    const sellerName = normalizeSellerName(businessUserName);
+    if (sellerName) {
+      return sellerName;
+    }
+  } catch (error) {
+    console.error(`Error buscando usuario interno ${user.email}:`, error.response?.data || error.message);
+  }
+
+  return normalizeSellerName(String(user?.email || '').split('@')[0]);
+}
+
+async function findAvailableUser(users, startDateTime, endDateTime) {
+  for (const user of users) {
+    try {
+      const busyTimes = await getBusyTimes(user, startDateTime, endDateTime);
+      if (!isSlotBusy(startDateTime, endDateTime, busyTimes)) {
+        return user;
+      }
+    } catch (error) {
+      console.error(`Error verificando disponibilidad de ${user.email}:`, error.response?.data || error.message);
+    }
+  }
+
+  return null;
 }
 
 function renderDataPage({ title, subtitle, badge, fields = null, records = null, emptyMessage, error = '' }) {
@@ -614,6 +671,113 @@ router.patch('/meetings/:id', async (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to update meeting',
+      details: error.response?.data || error.message
+    });
+  }
+});
+
+router.post('/book', async (req, res) => {
+  const { telefono, nombre, email, date, time, duration } = req.body || {};
+  const parsedDuration = Number(duration);
+
+  if (!telefono || !nombre || !email || !date || !time || !duration) {
+    return res.status(400).json({
+      error: 'Missing required fields',
+      required: ['telefono', 'nombre', 'email', 'date', 'time', 'duration']
+    });
+  }
+
+  if (!isValidEmail(email)) {
+    return res.status(400).json({ error: 'email must be valid' });
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: 'date must be provided in YYYY-MM-DD format' });
+  }
+
+  if (!/^\d{2}:\d{2}$/.test(time)) {
+    return res.status(400).json({ error: 'time must be provided in HH:mm format' });
+  }
+
+  if (![15, 30, 60].includes(parsedDuration)) {
+    return res.status(400).json({ error: 'duration must be one of: 15, 30, 60' });
+  }
+
+  const endTime = addMinutesToTime(time, parsedDuration);
+  const startDateTime = buildLocalDateTime(date, time);
+  const endDateTime = buildLocalDateTime(date, endTime);
+
+  if (Number.isNaN(new Date(startDateTime).getTime()) || Number.isNaN(new Date(endDateTime).getTime())) {
+    return res.status(400).json({ error: 'date/time combination is invalid' });
+  }
+
+  const workingSlotExists = getAvailableSlots(date, parsedDuration, { slot_check: [] })
+    .some((slot) => slot.time === time);
+  if (!workingSlotExists) {
+    return res.status(400).json({ error: 'Requested time is outside configured working slots' });
+  }
+
+  try {
+    const activeUsers = await getActiveUsers();
+    const activeSellers = activeUsers.filter((user) => String(user.rol || '').toLowerCase() === 'vendedora');
+    if (!activeSellers.length) {
+      return res.status(409).json({ error: 'No active sellers available' });
+    }
+
+    const assignedUser = await findAvailableUser(activeSellers, startDateTime, endDateTime);
+    if (!assignedUser) {
+      return res.status(409).json({ error: 'No users available for requested slot' });
+    }
+
+    const calendarEvent = await createMeetEvent(assignedUser, {
+      summary: `Reunion comercial - ${nombre}`,
+      description: [
+        `Cliente: ${nombre}`,
+        `Telefono: ${telefono}`,
+        `Email: ${email}`,
+        'Creado desde Extension FD.'
+      ].join('\n'),
+      startDateTime,
+      endDateTime,
+      attendees: [{ email }]
+    });
+
+    const meetLink = calendarEvent.hangoutLink || calendarEvent.conferenceData?.entryPoints?.find(
+      (entryPoint) => entryPoint.entryPointType === 'video'
+    )?.uri || '';
+
+    const client = await findOrCreateClient({ telefono, nombre, email });
+    const sellerName = await getSellerNameFromUser(assignedUser);
+    const meetingFields = {
+      Id: `${telefono}-${date}-${time}`,
+      Nombre: nombre,
+      'Tipo de Reunion': 'MEET',
+      ESTADO: 'PENDIENTE',
+      'Fase del Momento': 'FASE 1',
+      'Link de meet': meetLink,
+      'Logramos Registro?': false,
+      Fecha: startDateTime,
+      Duracion: parsedDuration,
+      'Google Calendar Event ID': calendarEvent.id,
+      Origen: 'API',
+      Notas: `Agendada automaticamente. Duracion: ${parsedDuration} minutos.`,
+      ...(sellerName ? { Vendedora: sellerName } : {}),
+      ...(client?.id ? { Cliente: [client.id] } : {})
+    };
+
+    const meeting = await createMeeting(meetingFields);
+
+    return res.status(201).json({
+      meetLink,
+      vendedora: sellerName || assignedUser.email,
+      assignedUser: assignedUser.email,
+      calendarEventId: calendarEvent.id,
+      meetingRecordId: meeting?.id || null
+    });
+  } catch (error) {
+    console.error('Error booking meeting:', error.response?.data || error.message);
+    return res.status(500).json({
+      error: 'Failed to book meeting',
       details: error.response?.data || error.message
     });
   }

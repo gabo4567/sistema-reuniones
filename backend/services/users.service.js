@@ -2,7 +2,7 @@ const axios = require('axios');
 
 const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY;
 const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID;
-const USERS_TABLE_NAME = 'AuthUsuarios';
+const AUTH_USERS_TABLE_NAME = 'AuthUsuarios';
 const VALID_ROLES = ['Vendedora', 'Gerente'];
 const DEFAULT_ROLE = 'Vendedora';
 
@@ -24,6 +24,27 @@ function escapeFormulaValue(value) {
     .replace(/"/g, '\\"');
 }
 
+function parseExpiryDate(value) {
+  if (!value) return null;
+
+  const numericValue = Number(value);
+  if (Number.isFinite(numericValue)) {
+    return numericValue;
+  }
+
+  const parsedDate = new Date(value);
+  if (!Number.isNaN(parsedDate.getTime())) {
+    return parsedDate.getTime();
+  }
+
+  return null;
+}
+
+function formatExpiryDateForAirtable(value) {
+  const expiryDate = parseExpiryDate(value);
+  return expiryDate ? new Date(expiryDate).toISOString() : null;
+}
+
 function mapRecordToUser(record) {
   const fields = record.fields || {};
   return {
@@ -31,7 +52,7 @@ function mapRecordToUser(record) {
     email: fields.Email || '',
     access_token: fields.AccessToken || '',
     refresh_token: fields.RefreshToken || '',
-    expiry_date: fields.ExpiryDate || null,
+    expiry_date: parseExpiryDate(fields.ExpiryDate),
     rol: normalizeRole(fields.Rol),
     activo: fields.Activo === true
   };
@@ -55,7 +76,7 @@ function buildUserPayload(userData) {
     email: userData.email,
     access_token: userData.access_token || '',
     refresh_token: userData.refresh_token || '',
-    expiry_date: userData.expiry_date || null,
+    expiry_date: parseExpiryDate(userData.expiry_date),
     rol: normalizeRole(userData.rol),
     activo: userData.activo !== false
   };
@@ -74,7 +95,7 @@ function logAirtableError(context, error) {
 
 async function findUserRecordByEmail(email) {
   const formula = `{Email}="${escapeFormulaValue(email)}"`;
-  const response = await airtableClient.get(`/${USERS_TABLE_NAME}`, {
+  const response = await airtableClient.get(`/${AUTH_USERS_TABLE_NAME}`, {
     params: {
       filterByFormula: formula,
       maxRecords: 1
@@ -86,30 +107,33 @@ async function findUserRecordByEmail(email) {
 
 async function saveUser(userData) {
   const user = buildUserPayload(userData);
-  const fields = {
+  const baseFields = {
     Email: user.email,
     AccessToken: user.access_token,
     RefreshToken: user.refresh_token,
-    ExpiryDate: user.expiry_date,
-    Rol: mapRoleToAirtable(user.rol),
+    ExpiryDate: formatExpiryDateForAirtable(user.expiry_date),
     Activo: user.activo
+  };
+  const createFields = {
+    ...baseFields,
+    Rol: mapRoleToAirtable(user.rol)
   };
 
   try {
     const existingRecord = await findUserRecordByEmail(user.email);
     const response = existingRecord
-      ? await airtableClient.patch(`/${USERS_TABLE_NAME}`, {
+      ? await airtableClient.patch(`/${AUTH_USERS_TABLE_NAME}`, {
           records: [
             {
               id: existingRecord.id,
-              fields
+              fields: baseFields
             }
           ]
         })
-      : await airtableClient.post(`/${USERS_TABLE_NAME}`, {
+      : await airtableClient.post(`/${AUTH_USERS_TABLE_NAME}`, {
           records: [
             {
-              fields
+              fields: createFields
             }
           ]
         });
@@ -130,7 +154,7 @@ async function saveUser(userData) {
 
 async function getActiveUsers() {
   const formula = `{Activo}=TRUE()`;
-  const response = await airtableClient.get(`/${USERS_TABLE_NAME}`, {
+  const response = await airtableClient.get(`/${AUTH_USERS_TABLE_NAME}`, {
     params: {
       filterByFormula: formula
     }
@@ -156,7 +180,7 @@ async function resetUsers() {
     }
   }));
 
-  const response = await airtableClient.patch(`/${USERS_TABLE_NAME}`, { records });
+  const response = await airtableClient.patch(`/${AUTH_USERS_TABLE_NAME}`, { records });
   return (response.data.records || []).map(mapRecordToUser);
 }
 

@@ -139,7 +139,7 @@
     return value;
   }
 
-  /** Registro de tblzkdl5c5rhpGXVP cuyo {Link de meet} coincide con la URL actual de Meet. */
+  /** Registro de Reuniones cuyo {Link de meet} coincide con la URL actual de Meet. */
   async function fetchMeetingRecordByMeetLink(meetUrl) {
     if (!meetUrl) return null;
     try {
@@ -302,6 +302,36 @@
     return fetchJson(`${API_BASE_URL}/availability?${params.toString()}`);
   }
 
+  async function bookMeeting({ telefono, nombre, email, date, time, duration }) {
+    return fetchJson(`${API_BASE_URL}/book`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        telefono,
+        nombre,
+        email,
+        date,
+        time,
+        duration: Number(duration)
+      })
+    });
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function isValidEmail(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+  }
+
   function getAvailabilityItemStyle(isSelected = false) {
     return [
       'width: 100%',
@@ -331,14 +361,62 @@
     `;
   }
 
+  function setBookingMessage(panel, message, isError = false, link = '') {
+    const messageEl = panel?.querySelector('#booking-message');
+    if (!messageEl) return;
+
+    if (!message) {
+      messageEl.textContent = '';
+      messageEl.style.display = 'none';
+      return;
+    }
+
+    const safeMessage = escapeHtml(message);
+    const safeLink = escapeHtml(link);
+    messageEl.innerHTML = safeLink
+      ? `${safeMessage}<a href="${safeLink}" target="_blank" rel="noopener noreferrer" style="display: inline-flex; width: 100%; box-sizing: border-box; justify-content: center; margin-top: 10px; padding: 9px 10px; border-radius: 8px; border: 1px solid #0B57D0; background: #0B57D0; color: #FFFFFF; text-decoration: none; font-weight: 700;">Abrir Meet</a>`
+      : safeMessage;
+    messageEl.style.display = message ? 'block' : 'none';
+    messageEl.style.color = isError ? '#f28b82' : '#CACCD3';
+    messageEl.style.borderColor = isError ? 'rgba(242, 139, 130, 0.35)' : 'rgba(202, 204, 211, 0.2)';
+  }
+
+  function setBookingButtonState(panel, enabled) {
+    const bookButton = panel?.querySelector('#booking-create-btn');
+    if (!bookButton) return;
+
+    bookButton.disabled = !enabled;
+    bookButton.style.opacity = enabled ? '1' : '0.5';
+    bookButton.style.cursor = enabled ? 'pointer' : 'not-allowed';
+    bookButton.style.borderColor = enabled ? '#0B57D0' : 'rgba(202, 204, 211, 0.25)';
+    bookButton.style.background = enabled ? '#0B57D0' : 'rgba(255, 255, 255, 0.06)';
+  }
+
+  function clearSelectedBookingSlot(panel) {
+    if (!panel) return;
+
+    panel.dataset.selectedBookingTime = '';
+    panel.querySelectorAll('.availability-slot-item').forEach(slotItem => {
+      slotItem.dataset.selected = 'false';
+      slotItem.style.cssText = getAvailabilityItemStyle(false);
+    });
+    setBookingButtonState(panel, false);
+  }
+
   function renderAvailabilityResults(panel, slots = []) {
     const results = panel?.querySelector('#availability-results');
     if (!results) return;
 
     if (!slots.length) {
+      panel.dataset.selectedBookingTime = '';
       setAvailabilityMessage(panel, 'No hay disponibilidad para este dia');
+      setBookingButtonState(panel, false);
       return;
     }
+
+    panel.dataset.selectedBookingTime = '';
+    setBookingMessage(panel, '');
+    setBookingButtonState(panel, false);
 
     results.innerHTML = slots.map(slot => `
       <button
@@ -360,6 +438,7 @@
     const dateInput = panel.querySelector('#availability-date');
     const durationSelect = panel.querySelector('#availability-duration');
     const actionButton = panel.querySelector('#availability-check-btn');
+    const bookButton = panel.querySelector('#booking-create-btn');
     const results = panel.querySelector('#availability-results');
 
     if (dateInput && !dateInput.value) {
@@ -370,6 +449,9 @@
     actionButton?.addEventListener('click', async () => {
       const date = dateInput?.value;
       const duration = durationSelect?.value || '30';
+      panel.dataset.selectedBookingTime = '';
+      setBookingMessage(panel, '');
+      setBookingButtonState(panel, false);
 
       if (!date) {
         setAvailabilityMessage(panel, 'Selecciona una fecha para continuar', true);
@@ -421,6 +503,85 @@
 
       item.dataset.selected = 'true';
       item.style.cssText = getAvailabilityItemStyle(true);
+      panel.dataset.selectedBookingTime = item.dataset.time || '';
+      setBookingMessage(panel, '');
+      setBookingButtonState(panel, true);
+    });
+
+    dateInput?.addEventListener('change', () => {
+      panel.dataset.selectedBookingTime = '';
+      setBookingMessage(panel, '');
+      setBookingButtonState(panel, false);
+    });
+
+    durationSelect?.addEventListener('change', () => {
+      panel.dataset.selectedBookingTime = '';
+      setBookingMessage(panel, '');
+      setBookingButtonState(panel, false);
+    });
+
+    bookButton?.addEventListener('click', async () => {
+      if (panel.dataset.bookingInProgress === 'true') return;
+
+      const telefono = panel.dataset.currentPhone || '';
+      const nombre = panel.dataset.currentName || '';
+      const email = panel.dataset.currentEmail || '';
+      const date = dateInput?.value || '';
+      const duration = durationSelect?.value || '30';
+      const time = panel.dataset.selectedBookingTime || '';
+
+      if (!telefono || !nombre) {
+        setBookingMessage(panel, 'Faltan datos del cliente para agendar.', true);
+        return;
+      }
+
+      if (!email) {
+        setBookingMessage(panel, 'Este cliente no tiene correo cargado. Agrega un correo antes de agendar.', true);
+        return;
+      }
+
+      if (!isValidEmail(email)) {
+        setBookingMessage(panel, 'El correo del cliente no parece valido. Revisalo antes de agendar.', true);
+        return;
+      }
+
+      if (!date || !time) {
+        setBookingMessage(panel, 'Selecciona un horario disponible antes de agendar.', true);
+        return;
+      }
+
+      panel.dataset.bookingInProgress = 'true';
+      bookButton.disabled = true;
+      bookButton.textContent = 'Agendando...';
+      setBookingMessage(panel, 'Creando evento y link de Meet...');
+
+      try {
+        const booking = await bookMeeting({ telefono, nombre, email, date, time, duration });
+        const fields = await fetchContactData(telefono);
+        const meetings = await fetchMeetingsData(telefono);
+        updatePanelWithData(fields || {
+          Nombre: nombre,
+          Telefono: telefono,
+          Correo: email
+        }, meetings);
+
+        const meetLink = booking?.meetLink || '';
+        setBookingMessage(
+          panel,
+          meetLink ? 'Reunion agendada correctamente.' : 'Reunion agendada correctamente, pero no se recibio link de Meet.',
+          false,
+          meetLink
+        );
+        clearSelectedBookingSlot(panel);
+        setAvailabilityMessage(panel, 'Reunion agendada. Volve a consultar disponibilidad para reservar otro horario.');
+      } catch (error) {
+        console.error('Extension FD: error al agendar reunion', error);
+        setBookingMessage(panel, 'No se pudo agendar la reunion.', true);
+        setBookingButtonState(panel, true);
+      } finally {
+        panel.dataset.bookingInProgress = 'false';
+        bookButton.textContent = 'Agendar reunion';
+      }
     });
   }
 
@@ -438,6 +599,19 @@
 
   function updatePanelWithData(fields, meetings = []) {
     const panel = document.getElementById('custom-side-panel');
+
+    if (panel && fields) {
+      panel.dataset.currentPhone = fields['Telefono'] || panel.dataset.currentPhone || '';
+      panel.dataset.currentName = fields['Nombre'] || panel.dataset.currentName || '';
+      panel.dataset.currentEmail = fields['Correo'] || panel.dataset.currentEmail || '';
+
+      if (!panel.dataset.currentEmail) {
+        setBookingMessage(panel, 'Este cliente no tiene correo cargado. Agrega uno para poder agendar.', true);
+        setBookingButtonState(panel, false);
+      } else {
+        setBookingMessage(panel, '');
+      }
+    }
 
     if (fields && fields['Nombre']) {
       if (panel) {
@@ -590,6 +764,10 @@
               Selecciona una fecha y duracion para consultar horarios
             </div>
           </div>
+          <button id="booking-create-btn" type="button" disabled style="width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(202, 204, 211, 0.25); background: rgba(255, 255, 255, 0.06); color: #FFFFFF; font-weight: 600; cursor: not-allowed; opacity: 0.5;">
+            Agendar reunion
+          </button>
+          <div id="booking-message" style="display: none; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(202, 204, 211, 0.2); background: rgba(255, 255, 255, 0.03); color: #CACCD3; font-size: 13px; line-height: 1.4; word-break: break-word;"></div>
         </div>
         <div class="separator"></div>
       </div>
@@ -782,7 +960,6 @@
                   <select id="fd-meet-fase" class="fd-meet-select">
                     <option value="FASE 1">FASE 1</option>
                     <option value="FASE 2">FASE 2</option>
-                    <option value="FASE 3">FASE 3</option>
                   </select>
                 </div>
                 <div class="fd-form-row">

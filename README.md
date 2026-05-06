@@ -56,6 +56,7 @@ Scripts disponibles:
 
 ```bash
 npm start
+npm run dev
 ```
 
 El backend escucha por defecto en el puerto `3000`.
@@ -64,17 +65,25 @@ El backend escucha por defecto en el puerto `3000`.
 
 Airtable se usa como persistencia principal para:
 
-- Contactos comerciales.
-- Reuniones.
+- Clientes comerciales mediante la tabla `Clientes`.
+- Usuarios internos mediante la tabla `Usuarios`.
+- Reuniones mediante la tabla `Reuniones`.
 - Usuarios autenticados en Google OAuth mediante la tabla `AuthUsuarios`.
 
 El backend accede a Airtable usando `AIRTABLE_API_KEY` y `AIRTABLE_BASE_ID`.
+
+Tablas usadas en la base `Auto-FielData`:
+
+- `Clientes`: clientes comerciales. Campos principales usados: `Nombre`, `Telefono`, `Correo`, `Cantidad de Reuniones`, `Ultima Reunion`, `Estado Ult Reunion`, `Nota Ultima Reunion`.
+- `Usuarios`: usuarios internos del negocio. Campos actuales: `Id`, `Nombre`, `Telefono`, `Correo`. Todavia no participa del flujo OAuth.
+- `Reuniones`: reuniones comerciales. Campos principales usados: `Nombre`, `Tipo de Reunion`, `ESTADO`, `Notas`, `Vendedora`, `Fase del Momento`, `Link de meet`, `Logramos Registro?`, `Cliente`, `Fecha`, `Duracion`, `Google Calendar Event ID`, `Origen`, `Telefono`.
+- `AuthUsuarios`: usuarios autenticados con Google. Campos usados: `Email`, `AccessToken`, `RefreshToken`, `ExpiryDate`, `Rol`, `Activo`.
 
 ## 🔄 Flujo del sistema
 
 1. El equipo trabaja desde Respond.io sobre una conversacion de WhatsApp.
 2. La extension detecta el telefono del contacto en la vista de Respond.io.
-3. La extension consulta al backend para obtener informacion del contacto y reuniones asociadas en Airtable.
+3. La extension consulta al backend para obtener informacion del cliente y reuniones asociadas en Airtable.
 4. Desde el panel lateral se puede consultar disponibilidad segun fecha y duracion.
 5. La disponibilidad se calcula con Google Calendar `freeBusy` sobre los usuarios activos guardados en `AuthUsuarios`.
 6. Las reuniones existentes muestran el link de Google Meet guardado en Airtable.
@@ -172,7 +181,7 @@ GET /auth/callback
 GET /api/contact/:phone
 ```
 
-Busca un contacto en Airtable por el campo `Telefono`.
+Busca un cliente en Airtable, tabla `Clientes`, por el campo `Telefono`.
 
 ### 📞 Reuniones por telefono
 
@@ -180,7 +189,7 @@ Busca un contacto en Airtable por el campo `Telefono`.
 GET /api/meetings/:phone
 ```
 
-Busca reuniones en Airtable por el campo `Telefono`.
+Busca reuniones en Airtable, tabla `Reuniones`, por el campo calculado `Telefono`.
 
 ### 🎥 Reunion por link de Meet
 
@@ -188,7 +197,7 @@ Busca reuniones en Airtable por el campo `Telefono`.
 GET /api/meetings/by-link?meetUrl=https://meet.google.com/xxx-yyyy-zzz
 ```
 
-Busca una reunion en Airtable por el campo `Link de meet`.
+Busca una reunion en Airtable, tabla `Reuniones`, por el campo `Link de meet`.
 
 ### ✏️ Actualizar reunion
 
@@ -203,12 +212,48 @@ Ejemplo de body:
 ```json
 {
   "Nombre": "Nombre del contacto",
-  "ESTADO": "Asistio",
+  "ESTADO": "Realizada",
   "Notas": "Notas internas",
-  "Vendedora": "Nombre de vendedora",
+  "Vendedora": "FLORENCIA",
   "Fase del Momento": "FASE 1",
   "Logramos Registro?": true,
-  "Fecha": "2026-05-06T15:00:00.000Z"
+  "Fecha": "2026-05-06T15:00:00.000Z",
+  "Duracion": 30,
+  "Google Calendar Event ID": "event_id",
+  "Origen": "API"
+}
+```
+
+### Reservar reunion
+
+```text
+POST /api/book
+```
+
+Crea una reunion completa: busca vendedoras activas en `AuthUsuarios`, elige una disponible, cruza su email con `Usuarios.Correo` para resolver el nombre comercial cuando exista, crea el evento con Google Meet en su calendario, vincula/crea el cliente en `Clientes` y guarda la reunion en `Reuniones`.
+
+Ejemplo de body:
+
+```json
+{
+  "telefono": "5493777316555",
+  "nombre": "Gabriel Veron",
+  "email": "cliente@example.com",
+  "date": "2026-05-06",
+  "time": "15:00",
+  "duration": 30
+}
+```
+
+Respuesta esperada:
+
+```json
+{
+  "meetLink": "https://meet.google.com/xxx-yyyy-zzz",
+  "vendedora": "FLORENCIA",
+  "assignedUser": "florencia@example.com",
+  "calendarEventId": "event_id",
+  "meetingRecordId": "recXXXXXXXXXXXXXX"
 }
 ```
 
@@ -299,7 +344,7 @@ Funcionalidades implementadas:
 - Extension de Chrome activa en Respond.io y Google Meet.
 - Panel lateral en Respond.io.
 - Deteccion de telefono desde la conversacion.
-- Consulta de contacto por telefono.
+- Consulta de cliente por telefono.
 - Consulta de reuniones por telefono.
 - Consulta de disponibilidad por fecha y duracion.
 - Login con Google OAuth.
@@ -307,17 +352,15 @@ Funcionalidades implementadas:
 - Refresco y persistencia de tokens de Google cuando corresponde.
 - Busqueda de reunion por link de Google Meet.
 - Actualizacion de campos de reuniones existentes en Airtable.
+- Reserva de reuniones con asignacion de vendedora, evento de Google Calendar, link de Meet y guardado en Airtable.
 
 Limitaciones actuales:
 
-- No hay script `dev`; el backend se inicia con `npm start`.
 - No hay suite de tests configurada.
-- No hay endpoint backend dedicado a crear nuevas reuniones desde cero.
 - El backend esta preparado para entorno local en `localhost:3000`.
 
 ## 🛠️ Proximos pasos
 
-- Agregar script `dev` con recarga automatica usando una herramienta como `nodemon`.
 - Incorporar validaciones mas estrictas sobre payloads de entrada.
 - Agregar tests unitarios para servicios de Airtable y calendario.
 - Agregar tests de integracion para endpoints principales.
@@ -343,6 +386,7 @@ Limitaciones actuales:
 - La extension requiere permiso para `http://localhost:3000/*` en `manifest.json`.
 - Los usuarios activos se leen desde Airtable con el filtro `{Activo}=TRUE()`.
 - La disponibilidad se calcula generando slots por duracion y descartando horarios que se superponen con bloques ocupados de Calendar.
-- Los telefonos se consultan contra el campo `Telefono` de Airtable.
+- Los clientes se consultan contra el campo `Telefono` de la tabla `Clientes`.
 - Las reuniones se consultan contra el campo `Telefono` o `Link de meet`, segun el flujo.
+- Las reuniones se vinculan con clientes mediante el campo `Cliente` de la tabla `Reuniones`.
 - La actualizacion de reuniones usa la tabla `Reuniones` para operaciones `PATCH`.

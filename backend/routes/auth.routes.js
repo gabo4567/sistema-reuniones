@@ -130,6 +130,111 @@ function renderLoginSuccessPage(userEmail) {
   `;
 }
 
+function renderLoginErrorPage({ title, message, statusText = 'Login no completado' }) {
+  return `
+    <!doctype html>
+    <html lang="es">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>${title} | Extension FD Backend</title>
+        <style>
+          body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            font-family: Arial, sans-serif;
+            background: #f6f7fb;
+            color: #172033;
+          }
+          main {
+            width: min(720px, calc(100% - 32px));
+            padding: 34px;
+            text-align: center;
+            background: #ffffff;
+            border: 1px solid #e5e8ef;
+            border-radius: 18px;
+            box-shadow: 0 24px 70px rgba(23, 32, 51, 0.10);
+          }
+          .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 18px;
+            padding: 7px 11px;
+            border-radius: 999px;
+            color: #9a3412;
+            background: #fff3e8;
+            font-size: 14px;
+            font-weight: 700;
+          }
+          .dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: #f97316;
+          }
+          h1 {
+            margin: 0;
+            font-size: clamp(30px, 5vw, 42px);
+            line-height: 1.08;
+            letter-spacing: 0;
+          }
+          p {
+            margin: 12px 0 0;
+            color: #5f6b7a;
+            line-height: 1.5;
+          }
+          .actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 12px;
+            margin-top: 24px;
+          }
+          a {
+            display: inline-flex;
+            min-height: 42px;
+            align-items: center;
+            justify-content: center;
+            padding: 0 16px;
+            border-radius: 9px;
+            border: 1px solid #dfe6ef;
+            color: #172033;
+            text-decoration: none;
+            font-weight: 700;
+          }
+          a.primary {
+            border-color: #0b57d0;
+            background: #0b57d0;
+            color: #ffffff;
+          }
+          @media (max-width: 560px) {
+            main {
+              padding: 26px;
+            }
+            .actions {
+              flex-direction: column;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <main>
+          <div class="status"><span class="dot"></span> ${statusText}</div>
+          <h1>${title}</h1>
+          <p>${message}</p>
+          <nav class="actions" aria-label="Accesos rapidos">
+            <a class="primary" href="/auth/google">Intentar de nuevo</a>
+            <a href="/">Ir al inicio</a>
+          </nav>
+        </main>
+      </body>
+    </html>
+  `;
+}
+
 router.get('/google', (req, res) => {
   req.session.googleUserEmail = null;
   const oauth2Client = createOAuthClient();
@@ -147,10 +252,27 @@ router.get('/google', (req, res) => {
 });
 
 router.get('/callback', async (req, res) => {
-  const { code } = req.query;
+  const { code, error } = req.query;
+
+  if (error === 'access_denied') {
+    return res.status(403).send(renderLoginErrorPage({
+      title: 'Permiso de Google cancelado',
+      message: 'No se conecto la cuenta porque se cancelo el permiso de acceso. Podes volver a intentarlo cuando quieras.'
+    }));
+  }
+
+  if (error) {
+    return res.status(400).send(renderLoginErrorPage({
+      title: 'No se pudo completar el login',
+      message: 'Google devolvio un error durante la autorizacion. Proba iniciar sesion nuevamente.'
+    }));
+  }
 
   if (!code) {
-    return res.status(400).json({ error: 'Missing code parameter' });
+    return res.status(400).send(renderLoginErrorPage({
+      title: 'Falta completar la autorizacion',
+      message: 'No recibimos el codigo necesario para conectar Google. Inicia el login otra vez desde el boton de abajo.'
+    }));
   }
 
   try {
