@@ -1,0 +1,420 @@
+#custom-calendar-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #222225;
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: grab;
+  z-index: 999999;
+  user-select: none;
+  border: 1px solid #CACCD3;
+  box-shadow: none;
+  transition: background-color 0.2s;
+}
+
+#custom-calendar-btn:active {
+  cursor: grabbing;
+}
+
+#custom-calendar-btn svg {
+  width: 20px;
+  height: 20px;
+  fill: #CACCD3;
+  pointer-events: none; /* Avoid SVG intercepting click events */
+}
+
+/* Side Panel Styles */
+#custom-side-panel {
+  position: fixed;
+  right: -320px; /* Initial state, will be updated by JS */
+  top: 0;
+  width: 320px; /* Default width */
+  height: 100vh;
+  background-color: #222225;
+  color: #CACCD3;
+  z-index: 999998;
+  box-shadow: none;
+  transition: right 0.3s ease-in-out;
+  padding: 20px;
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+#panel-resize-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  cursor: ew-resize;
+  background: transparent;
+  transition: background 0.2s;
+  z-index: 999999;
+  opacity: 0.3;
+  border-left: 1px solid #CACCD3;
+}
+
+#panel-resize-handle:hover {
+  background: rgba(202, 204, 211, 0.1);
+}
+
+#custom-side-panel.open {
+  right: 0 !important; /* Force open state */
+}
+
+.panel-header {
+  margin-bottom: 20px;
+}
+
+.header-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 5px;
+}
+
+#panel-minimize-btn {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#panel-minimize-btn:hover {
+  opacity: 0.8;
+}
+
+.panel-title {
+  font-size: 22px !important;
+}
+
+.panel-subtitle {
+  font-weight: bold;
+  font-size: 16px;
+  margin-bottom: 15px;
+}
+
+.copyable-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 3px;
+  cursor: pointer;
+}
+
+.copyable-item span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.copyable-item:hover {
+  opacity: 0.8;
+}
+
+.separator {
+  height: 1px;
+  background-color: #CACCD3;
+  opacity: 0.3;
+  margin: 20px -20px; /* Spacing matching the padding */
+  width: calc(100% + 40px);
+}
+
+.summary-row {
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.summary-row-inline {
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.nota-valor {
+  line-height: 1.5;
+  word-wrap: break-word;
+  white-space: normal;
+  margin-top: 4px;
+}
+
+.summary-row span:first-child,
+.summary-row-inline span:first-child {
+  font-weight: bold;
+}
+
+/* Google Meet Specific Styles */
+#custom-meet-form {
+  display: none; /* Hidden by default */
+  overflow: hidden;
+}
+
+#custom-meet-form.qdulke {
+  display: flex !important; /* Shown when qdulke is present */
+  flex-direction: column;
+}
+
+#custom-meet-form .fd-meet-header-block {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 28px 16px 18px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid rgba(95, 99, 104, 0.85);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
+}
+
+/* Meet form: title is editable text, not a flex bar */
+#custom-meet-form .fd-meet-form-title.J8vCN {
+  display: block;
+  padding: 0;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 24px;
+  line-height: 1.25;
+  font-weight: 500;
+  color: #e8eaed;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+}
+
+#custom-meet-form .fd-meet-form-title-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 24px;
+  line-height: 1.25;
+  font-weight: 500;
+  color: #e8eaed;
+  background: #3c4043;
+  border: 1px solid #5f6368;
+  border-radius: 4px;
+  padding: 6px 10px;
+  outline: none;
+}
+#custom-meet-form .fd-meet-form-title-input:focus {
+  border-color: #8ab4f8;
+}
+#custom-meet-form .fd-meet-form-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 8px;
+  min-width: 0;
+  width: 100%;
+}
+#custom-meet-form .fd-form-row.fd-form-row-stack {
+  min-width: 0;
+  width: 100%;
+}
+#custom-meet-form .fd-form-row {
+  display: grid;
+  grid-template-columns: minmax(0, 46%) 1fr;
+  align-items: center;
+  gap: 12px;
+}
+#custom-meet-form .fd-form-row-stack {
+  grid-template-columns: 1fr;
+  align-items: start;
+}
+#custom-meet-form .fd-form-row-stack .fd-form-label {
+  grid-column: 1 / -1;
+}
+#custom-meet-form .fd-form-label {
+  font-size: 16px;
+  line-height: 1.35;
+  color: #9aa0a6;
+  font-weight: 600;
+}
+#custom-meet-form .fd-meet-input,
+#custom-meet-form .fd-meet-select {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  font-size: 14px;
+  color: #e8eaed;
+  background: #3c4043;
+  border: 1px solid #5f6368;
+  border-radius: 4px;
+  padding: 8px 10px;
+  outline: none;
+}
+#custom-meet-form .fd-meet-input:focus,
+#custom-meet-form .fd-meet-select:focus {
+  border-color: #8ab4f8;
+}
+/* Misma cáscara visual que inputs/selects */
+#custom-meet-form .fd-meet-control-shell {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  background: #3c4043;
+  border: 1px solid #5f6368;
+  border-radius: 4px;
+}
+
+#custom-meet-form .fd-meet-control-shell:focus-within {
+  border-color: #8ab4f8;
+}
+
+#custom-meet-form .fd-meet-control-shell--checkbox {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 42px;
+  padding: 8px 10px;
+}
+
+#custom-meet-form .fd-meet-checkbox {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: #8ab4f8;
+  cursor: pointer;
+}
+#custom-meet-form .fd-meet-form-scroll {
+  min-width: 0;
+}
+
+#custom-meet-form .fd-meet-notas-wrap {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  align-self: stretch;
+}
+
+/* Contenedor de notas → textarea: ancho completo del panel */
+#custom-meet-form .fd-meet-notas-wrap .qdOxv-fmcmS-yrriRe-OWXEXe-H9tDt.tnr1Oc.IPsaZc,
+#custom-meet-form .fd-meet-notas-wrap .qdOxv-fmcmS-yrriRe-OWXEXe-H9tDt {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box;
+  display: block !important;
+}
+
+#custom-meet-form .fd-meet-notas-wrap {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box;
+  display: flex !important;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+#custom-meet-form .fd-meet-notas-wrap textarea.qdOxv-fmcmS-wGMbrd {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  align-self: stretch;
+  flex: 1 1 auto;
+  min-height: 96px;
+  max-height: 240px;
+  resize: vertical;
+  box-sizing: border-box;
+  color: #e8eaed;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  line-height: 1.45;
+  padding: 12px 16px;
+}
+
+#custom-meet-form .fd-meet-guardar-row {
+  margin-top: 14px;
+  width: 100%;
+  min-width: 0;
+}
+
+#custom-meet-form .fd-meet-guardar-btn {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  background-color: rgb(11, 87, 208);
+  border: 1px solid #fff;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+#custom-meet-form .fd-meet-guardar-btn:hover {
+  filter: brightness(1.08);
+}
+
+#custom-meet-form .fd-meet-guardar-btn:active {
+  filter: brightness(0.95);
+}
+
+.J8vCN {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+}
+
+/* Meet Card Styles */
+.meet-card-header {
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.meet-card-header:hover {
+  background-color: rgba(202, 204, 211, 0.05) !important;
+}
+
+.meet-card-header.is-open {
+  border-color: #0B57D0 !important;
+  background-color: rgba(11, 87, 208, 0.05) !important;
+}
+
+.meet-card-extra-info {
+  animation: slideDown 0.3s ease-out;
+}
+
+.hsLqkc {
+  font-family: Google Sans, Roboto, Arial, sans-serif;
+  font-size: .75rem;
+  font-weight: 400;
+  letter-spacing: .00625rem;
+  line-height: 1rem;
+  outline: 1px solid transparent;
+  background: var(--gm3-sys-color-surface-container-high, #e9eef6);
+  border-radius: 8px;
+  color: var(--gm3-sys-color-on-surface-variant, #444746);
+  margin: .75rem;
+  padding: .75rem;
+  text-align: center;
+  user-select: none;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

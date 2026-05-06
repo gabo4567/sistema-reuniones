@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Respond.io Calendar Button",
+  "version": "1.0",
+  "description": "A floating calendar button for respond.io inbox",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://app.respond.io/space/342593/*",
+        "https://meet.google.com/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"]
+    }
+  ],
+  "host_permissions": ["http://localhost:3000/*"],
+  "permissions": ["storage"]
+}
