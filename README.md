@@ -1,6 +1,6 @@
-# Sistema de Agendamiento de Reuniones Comerciales
+# 📅 Sistema de Agendamiento de Reuniones Comerciales
 
-## Descripcion breve del sistema
+## 🧩 Descripcion breve del sistema
 
 Sistema interno para asistir el agendamiento y seguimiento de reuniones comerciales desde una extension de Chrome integrada con Respond.io y Google Meet.
 
@@ -10,13 +10,13 @@ El proyecto esta compuesto por:
 - Un backend Node.js con Express que expone endpoints para autenticacion, disponibilidad y actualizacion de reuniones.
 - Airtable como base de datos para contactos, reuniones y usuarios autenticados.
 
-## Objetivo del negocio
+## 🎯 Objetivo del negocio
 
 Centralizar informacion comercial y reducir friccion operativa durante el proceso de agendamiento. El sistema permite consultar datos del contacto, revisar reuniones asociadas, validar disponibilidad de vendedoras y actualizar informacion de reuniones desde las herramientas que usa el equipo.
 
-## Arquitectura
+## 🏗️ Arquitectura
 
-### Extension de Chrome
+### 🧭 Extension de Chrome
 
 Archivos principales:
 
@@ -35,7 +35,7 @@ El frontend de la extension consume el backend local en:
 http://localhost:3000/api
 ```
 
-### Backend
+### ⚙️ Backend
 
 El backend esta ubicado en la carpeta `backend/` y utiliza:
 
@@ -60,7 +60,7 @@ npm start
 
 El backend escucha por defecto en el puerto `3000`.
 
-### Airtable
+### 🗄️ Airtable
 
 Airtable se usa como persistencia principal para:
 
@@ -70,7 +70,7 @@ Airtable se usa como persistencia principal para:
 
 El backend accede a Airtable usando `AIRTABLE_API_KEY` y `AIRTABLE_BASE_ID`.
 
-## Flujo del sistema
+## 🔄 Flujo del sistema
 
 1. El equipo trabaja desde Respond.io sobre una conversacion de WhatsApp.
 2. La extension detecta el telefono del contacto en la vista de Respond.io.
@@ -81,7 +81,7 @@ El backend accede a Airtable usando `AIRTABLE_API_KEY` y `AIRTABLE_BASE_ID`.
 7. Al ingresar a una sala de Google Meet, la extension busca la reunion por el campo `Link de meet`.
 8. Desde Google Meet se puede editar informacion operativa de la reunion y guardar los cambios en Airtable.
 
-## Autenticacion
+## 🔐 Autenticacion
 
 La autenticacion se realiza con Google OAuth.
 
@@ -114,7 +114,7 @@ Roles soportados actualmente:
 
 Si no se informa rol, se usa `Vendedora` como valor por defecto.
 
-## Disponibilidad
+## 🗓️ Disponibilidad
 
 La disponibilidad se calcula usando Google Calendar `freeBusy` sobre el calendario principal de cada usuario activo.
 
@@ -143,9 +143,9 @@ Reglas horarias actuales:
 
 El resultado incluye horarios disponibles y usuarios disponibles para cada horario.
 
-## Endpoints principales
+## 🔌 Endpoints principales
 
-### Salud del backend
+### ✅ Salud del backend
 
 ```text
 GET /health
@@ -159,14 +159,14 @@ Respuesta esperada:
 }
 ```
 
-### Autenticacion
+### 🔐 Autenticacion
 
 ```text
 GET /auth/google
 GET /auth/callback
 ```
 
-### Contactos
+### 👤 Contactos
 
 ```text
 GET /api/contact/:phone
@@ -174,7 +174,7 @@ GET /api/contact/:phone
 
 Busca un contacto en Airtable por el campo `Telefono`.
 
-### Reuniones por telefono
+### 📞 Reuniones por telefono
 
 ```text
 GET /api/meetings/:phone
@@ -182,7 +182,7 @@ GET /api/meetings/:phone
 
 Busca reuniones en Airtable por el campo `Telefono`.
 
-### Reunion por link de Meet
+### 🎥 Reunion por link de Meet
 
 ```text
 GET /api/meetings/by-link?meetUrl=https://meet.google.com/xxx-yyyy-zzz
@@ -190,7 +190,7 @@ GET /api/meetings/by-link?meetUrl=https://meet.google.com/xxx-yyyy-zzz
 
 Busca una reunion en Airtable por el campo `Link de meet`.
 
-### Actualizar reunion
+### ✏️ Actualizar reunion
 
 ```text
 PATCH /api/meetings/:id
@@ -212,13 +212,13 @@ Ejemplo de body:
 }
 ```
 
-### Disponibilidad
+### 🗓️ Disponibilidad
 
 ```text
 GET /api/availability?date=2026-05-06&duration=30
 ```
 
-### Debug
+### 🧪 Debug
 
 ```text
 GET /debug/reset-users
@@ -226,20 +226,20 @@ GET /debug/reset-users
 
 Desactiva usuarios activos y limpia tokens en `AuthUsuarios`. Debe usarse solo en desarrollo o tareas controladas.
 
-## Configuracion local
+## 💻 Configuracion local
 
-### 1. Instalar dependencias del backend
+### 1. 📦 Instalar dependencias del backend
 
 ```bash
 cd backend
 npm install
 ```
 
-### 2. Crear archivo de variables de entorno
+### 2. 🔑 Crear archivo de variables de entorno
 
 Crear `backend/.env` con las variables necesarias. Ver la seccion "Variables de entorno".
 
-### 3. Iniciar backend
+### 3. 🚀 Iniciar backend
 
 ```bash
 npm start
@@ -251,20 +251,20 @@ El servidor queda disponible en:
 http://localhost:3000
 ```
 
-### 4. Verificar salud del backend
+### 4. ✅ Verificar salud del backend
 
 ```bash
 curl http://localhost:3000/health
 ```
 
-### 5. Cargar extension en Chrome
+### 5. 🧩 Cargar extension en Chrome
 
 1. Abrir `chrome://extensions`.
 2. Activar "Modo desarrollador".
 3. Seleccionar "Cargar descomprimida".
 4. Elegir la carpeta raiz del proyecto.
 
-### 6. Login con Google
+### 6. 🔐 Login con Google
 
 Abrir en el navegador:
 
@@ -274,7 +274,7 @@ http://localhost:3000/auth/google
 
 Completar el flujo OAuth para guardar el usuario en Airtable.
 
-## Variables de entorno
+## 🔑 Variables de entorno
 
 Ejemplo de `backend/.env`:
 
@@ -292,7 +292,7 @@ AIRTABLE_BASE_ID=your-airtable-base-id
 
 No subir archivos `.env` al repositorio.
 
-## Estado actual del proyecto
+## 📌 Estado actual del proyecto
 
 Funcionalidades implementadas:
 
@@ -315,7 +315,7 @@ Limitaciones actuales:
 - No hay endpoint backend dedicado a crear nuevas reuniones desde cero.
 - El backend esta preparado para entorno local en `localhost:3000`.
 
-## Proximos pasos
+## 🛠️ Proximos pasos
 
 - Agregar script `dev` con recarga automatica usando una herramienta como `nodemon`.
 - Incorporar validaciones mas estrictas sobre payloads de entrada.
@@ -325,7 +325,7 @@ Limitaciones actuales:
 - Revisar configuracion de CORS antes de desplegar fuera de local.
 - Definir estrategia de despliegue para backend.
 
-## Seguridad
+## 🛡️ Seguridad
 
 - No commitear `backend/.env` ni credenciales reales.
 - Mantener `node_modules/` fuera del repositorio.
@@ -336,7 +336,7 @@ Limitaciones actuales:
 - Evitar exponer endpoints de debug en entornos productivos.
 - Proteger tokens OAuth almacenados en Airtable con permisos adecuados.
 
-## Notas tecnicas
+## 📝 Notas tecnicas
 
 - El backend usa CommonJS (`require` / `module.exports`).
 - La extension consume el backend mediante `fetch`.
