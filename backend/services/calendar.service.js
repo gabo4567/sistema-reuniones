@@ -158,6 +158,15 @@ async function createMeetEvent(user, { summary, description, startDateTime, endD
   return response.data;
 }
 
+async function deleteCalendarEvent(user, calendarEventId) {
+  const calendar = await getCalendarClient(user);
+  await calendar.events.delete({
+    calendarId: 'primary',
+    eventId: calendarEventId,
+    sendUpdates: 'all'
+  });
+}
+
 function getWorkingHours(date) {
   const dayOfWeek = new Date(buildLocalDateTime(date, '00:00')).getUTCDay();
 
@@ -252,6 +261,7 @@ module.exports = {
   buildLocalDateTime,
   addMinutesToTime,
   createMeetEvent,
+  deleteCalendarEvent,
   getBusyTimes,
   getAvailableSlots
 };

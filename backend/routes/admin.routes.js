@@ -399,6 +399,7 @@ function renderSellersAdminPage() {
                 '<td class="actions">' +
                   '<button type="button" data-action="toggle-active" data-id="' + seller.recordId + '">' + (seller.activa ? 'Desactivar' : 'Activar') + '</button>' +
                   '<button type="button" data-action="toggle-receives" data-id="' + seller.recordId + '">' + (seller.puede_recibir_reuniones ? 'No recibe' : 'Recibe') + '</button>' +
+                  '<button type="button" data-action="toggle-meets" data-id="' + seller.recordId + '">' + (seller.puede_crear_meets ? 'Sin meet' : 'Con meet') + '</button>' +
                 '</td>' +
               '</tr>';
             }).join('');
@@ -516,7 +517,9 @@ function renderSellersAdminPage() {
                   activa: !seller.activa,
                   puede_recibir_reuniones: seller.activa ? false : seller.puede_recibir_reuniones
                 }
-              : { puede_recibir_reuniones: !seller.puede_recibir_reuniones };
+              : button.dataset.action === 'toggle-receives'
+              ? { puede_recibir_reuniones: !seller.puede_recibir_reuniones }
+              : { puede_crear_meets: !seller.puede_crear_meets };
 
             try {
               await api('/api/sellers/' + seller.recordId, {

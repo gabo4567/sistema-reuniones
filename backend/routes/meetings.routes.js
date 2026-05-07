@@ -16,6 +16,7 @@ const {
   addMinutesToTime,
   buildLocalDateTime,
   createMeetEvent,
+  deleteCalendarEvent,
   getBusyTimes,
   getAvailableSlots
 } = require('../services/calendar.service');
@@ -963,6 +964,117 @@ router.get('/availability', async (req, res) => {
     }
     return res.status(500).json({
       error: 'Failed to compute availability',
+      details: error.response?.data || error.message
+    });
+  }
+});
+
+router.post('/reschedule', async (req, res) => {
+  const { recordId, oldCalendarEventId, oldVendedora, date, time, duration, nombre, telefono, email } = req.body || {};
+  const parsedDuration = Number(duration);
+
+  if (!recordId || !date || !time || !duration) {
+    return res.status(400).json({
+      error: 'Missing required fields',
+      required: ['recordId', 'date', 'time', 'duration']
+    });
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: 'date must be provided in YYYY-MM-DD format' });
+  }
+
+  if (!/^\d{2}:\d{2}$/.test(time)) {
+    return res.status(400).json({ error: 'time must be provided in HH:mm format' });
+  }
+
+  if (![15, 30, 60].includes(parsedDuration)) {
+    return res.status(400).json({ error: 'duration must be one of: 15, 30, 60' });
+  }
+
+  const endTime = addMinutesToTime(time, parsedDuration);
+  const startDateTime = buildLocalDateTime(date, time);
+  const endDateTime = buildLocalDateTime(date, endTime);
+
+  if (Number.isNaN(new Date(startDateTime).getTime()) || Number.isNaN(new Date(endDateTime).getTime())) {
+    return res.status(400).json({ error: 'date/time combination is invalid' });
+  }
+
+  const workingSlotExists = getAvailableSlots(date, parsedDuration, { slot_check: [] })
+    .some((slot) => slot.time === time);
+  if (!workingSlotExists) {
+    return res.status(400).json({ error: 'Requested time is outside configured working slots' });
+  }
+
+  try {
+    const activeUsers = await getActiveUsers();
+    const eligibleSellers = await getEligibleSellerEntries(activeUsers, { date, startDateTime, endDateTime });
+
+    if (!eligibleSellers.length) {
+      return res.status(409).json({ error: 'No active sellers available for the new slot' });
+    }
+
+    const assignedEntry = await findAvailableUser(eligibleSellers, startDateTime, endDateTime);
+    if (!assignedEntry) {
+      return res.status(409).json({ error: 'No sellers available for the requested time' });
+    }
+
+    const assignedUser = assignedEntry.user;
+    const calendarEvent = await createMeetEvent(assignedUser, {
+      summary: `Reunion comercial${nombre ? ` - ${nombre}` : ''}`,
+      description: [
+        nombre ? `Cliente: ${nombre}` : '',
+        telefono ? `Telefono: ${telefono}` : '',
+        email ? `Email: ${email}` : '',
+        'Reprogramada desde Extension FD.'
+      ].filter(Boolean).join('\n'),
+      startDateTime,
+      endDateTime,
+      attendees: email ? [{ email }] : []
+    });
+
+    const meetLink = calendarEvent.hangoutLink ||
+      calendarEvent.conferenceData?.entryPoints?.find((ep) => ep.entryPointType === 'video')?.uri || '';
+
+    if (oldCalendarEventId && oldVendedora) {
+      try {
+        const sellers = await listSellers();
+        const oldSeller = sellers.find((s) =>
+          normalizeEmail(s.nombre || '') === normalizeEmail(oldVendedora) ||
+          (s.nombre || '').toLowerCase().includes((oldVendedora || '').toLowerCase()) ||
+          (oldVendedora || '').toLowerCase().includes((s.nombre || '').toLowerCase())
+        );
+        if (oldSeller?.correo) {
+          const oldUser = activeUsers.find((u) => normalizeEmail(u.email) === normalizeEmail(oldSeller.correo));
+          if (oldUser) {
+            await deleteCalendarEvent(oldUser, oldCalendarEventId);
+          }
+        }
+      } catch (deleteErr) {
+        console.warn('No se pudo eliminar el evento anterior del calendario:', deleteErr.message);
+      }
+    }
+
+    const sellerName = normalizeSellerName(assignedEntry.seller.nombre) || await getSellerNameFromUser(assignedUser);
+
+    await updateMeeting(recordId, {
+      Fecha: startDateTime,
+      'Link de meet': meetLink,
+      'Google Calendar Event ID': calendarEvent.id,
+      ESTADO: 'PENDIENTE',
+      ...(sellerName ? { Vendedora: sellerName } : {}),
+      Notas: `Reprogramada para ${date} a las ${time}. Duracion: ${parsedDuration} min.`
+    });
+
+    return res.json({
+      meetLink,
+      vendedora: sellerName || assignedUser.email,
+      calendarEventId: calendarEvent.id
+    });
+  } catch (error) {
+    console.error('Error rescheduling meeting:', error.response?.data || error.message);
+    return res.status(500).json({
+      error: 'Failed to reschedule meeting',
       details: error.response?.data || error.message
     });
   }

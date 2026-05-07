@@ -9,62 +9,77 @@
     return isMeet || isInbox;
   }
 
+  function buildRescheduleFormHTML(today) {
+    return `
+      <button type="button" class="reschedule-btn">Reprogramar reunion</button>
+      <div class="reschedule-form" style="display:none;">
+        <div class="reschedule-form-title">Nueva fecha y horario</div>
+        <input type="date" class="reschedule-date" min="${today}" value="${today}" />
+        <select class="reschedule-duration">
+          <option value="15">15 min</option>
+          <option value="30" selected>30 min</option>
+          <option value="60">60 min</option>
+        </select>
+        <button type="button" class="reschedule-check-btn">Ver horarios disponibles</button>
+        <div class="reschedule-slots"></div>
+        <button type="button" class="reschedule-confirm-btn" disabled>Confirmar reprogramacion</button>
+        <div class="reschedule-message" style="display:none;"></div>
+      </div>
+    `;
+  }
+
   function getMeetCardsHTML(meetings = []) {
     if (!meetings || meetings.length === 0) {
-      return '<div class="dls-txt-caption dls-text-text-secondary dls-text-center dls-py-4">No hay reuniones registradas</div>';
+      return '<div class="fd-empty-state">No hay reuniones registradas</div>';
     }
+
+    const today = getTodayDateValue();
 
     return meetings.map(record => {
       const fields = record.fields;
+      const recordId = record.id || '';
+      const calendarEventId = fields['Google Calendar Event ID'] || '';
+      const vendedora = fields['Vendedora'] || 'N/A';
       const date = fields['Fecha'] ? new Date(fields['Fecha']).toLocaleDateString('es-ES', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A';
-      const status = fields['ESTADO'] || 'N/A';
+      const status = fields['ESTADO'] || '';
       const type = fields['Tipo de Reunion'] || 'Meet';
-      const seller = fields['Vendedora'] || 'N/A';
       const phase = fields['Fase del Momento'] || 'N/A';
-      const meetLink = fields['Link de meet'] || '#';
+      const meetLink = fields['Link de meet'] || '';
       const registered = fields['Logramos Registro?'] === true ? '✅' : '❌';
-      const notes = fields['Notas'] || 'Sin notas';
+      const notes = fields['Notas'] || '';
+      const statusClass = getStatusBadgeClass(status);
 
       return `
-        <div class="meet-card" style="position: relative; width: 100%; margin-bottom: 12px;">
-          <div class="dls-pb-[14px]">
-            <div class="dls-border dls-rounded-rectangular-8 dls-border-border-default dls-p-12 dls-cursor-pointer hover:dls-bg-bg-gray meet-card-header">
-              <div>
-                <div class="dls-flex dls-pb-8 dls-items-center dls-justify-between">
-                  <div class="dls-flex dls-align-middle">
-                    <i data-component="FontIcon" class="icon icon-user-circle-add dls-size-icon-lg dls-text-icon-lg"></i>
-                    <span class="dls-txt-h6 dls-text-text-primary dls-ps-8">${type}</span>
-                  </div>
-                  <span class="v-chip v-theme--dark v-chip--density-default v-chip--size-small v-chip--variant-tonal dls-relative dls-inline-flex dls-items-center dls-justify-center dls-h-[24px] dls-rounded-modal dls-bg-bg-gray dls-px-4">
-                    <span class="dls-txt-caption dls-font-semibold dls-text-text-secondary">${date}</span>
-                  </span>
-                </div>
-                <div class="dls-bg-border-default dls-w-full dls-h-[1px]"></div>
-                <div class="dls-pt-8 dls-flex dls-items-center dls-justify-between">
-                  <span class="dls-txt-caption dls-text-text-secondary">${seller}</span>
-                  <span class="v-chip v-theme--dark v-chip--density-default v-chip--size-small v-chip--variant-tonal dls-relative dls-inline-flex dls-items-center dls-justify-center dls-h-[24px] dls-rounded-modal dls-bg-bg-gray dls-px-4">
-                    <span class="dls-txt-caption dls-font-semibold dls-text-text-secondary">${status}</span>
-                  </span>
-                </div>
+        <div class="meet-card"
+             data-record-id="${escapeHtml(recordId)}"
+             data-calendar-event-id="${escapeHtml(calendarEventId)}"
+             data-vendedora="${escapeHtml(vendedora)}">
+          <div class="fd-card">
+            <div class="fd-card-header meet-card-header">
+              <div class="fd-card-row">
+                <span class="fd-card-type">${escapeHtml(type)}</span>
+                <span class="fd-badge fd-badge--gray">${escapeHtml(date)}</span>
               </div>
-              <!-- Info Extra Desplegable -->
-              <div class="meet-card-extra-info" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px dashed rgba(202, 204, 211, 0.3);">
-                <div class="dls-flex dls-flex-col dls-gap-2">
-                  <div class="dls-flex dls-justify-between dls-items-center">
-                    <span class="dls-txt-caption dls-text-text-secondary">Fase del Momento:</span>
-                    <span class="dls-txt-caption-bold dls-text-text-primary">${phase}</span>
+              <div class="fd-card-divider"></div>
+              <div class="fd-card-row">
+                <span class="fd-card-vendedora">${escapeHtml(vendedora)}</span>
+                <span class="${statusClass}">${escapeHtml(status || '–')}</span>
+              </div>
+              <div class="meet-card-extra-info" style="display:none;">
+                <div class="fd-card-extra">
+                  <div class="fd-card-details">
+                    <div class="fd-card-detail-row">
+                      <span class="fd-card-detail-label">Fase</span>
+                      <span class="fd-card-detail-value">${escapeHtml(phase)}</span>
+                    </div>
+                    <div class="fd-card-detail-row">
+                      <span class="fd-card-detail-label">Registro</span>
+                      <span class="fd-card-detail-value">${registered}</span>
+                    </div>
                   </div>
-                  <div class="dls-flex dls-justify-between dls-items-center">
-                    <span class="dls-txt-caption dls-text-text-secondary">Logramos Registro?:</span>
-                    <span class="dls-txt-caption-bold dls-text-text-primary">${registered}</span>
-                  </div>
-                  <div class="dls-flex dls-flex-col dls-mt-1">
-                    <span class="dls-txt-caption dls-text-text-secondary">Notas:</span>
-                    <span class="dls-txt-caption dls-text-text-primary">${notes}</span>
-                  </div>
-                  <div class="dls-flex dls-items-center dls-mt-2 dls-w-full">
-                    <a data-v-6b05a376="" href="${meetLink}" class="dls-min-w-0 dls-w-full dls-relative dls-txt-button dls-whitespace-nowrap dls-select-none dls-items-center dls-justify-between dls-transition-colors [&amp;:not([v-tooltip])[disabled=true]]:dls-pointer-events-none rtl:flex-row-reverse data-[disabled=true]:dls-border-border-default dls-normal-case dls-inline-flex dls-fill-blue-base dls-text-blue-base data-[disabled=false]:active:dls-text-blue-lighten-1 dls-p-0 dls-pl-0 dls-pr-0 !dls-h-fit [&amp;_svg]:dls-h-icon-xs [&amp;_svg]:dls-w-icon-xs [&amp;_svg]:dls-text-icon-xs [&amp;_i]:dls-text-icon-xs [&amp;_i]:dls-w-icon-xs [&amp;_i]:dls-h-icon-xs hover:[&amp;_:not(i)]:data-[disabled=false]:dls-underline" disabled="false" type="button" data-disabled="false" data-iconstart="false" data-iconend="true" data-variant="link" data-color="neutral" data-size="neutral" data-type="router-link" data-loading="[object Object]" data-pendo="messages-contact-fields-manage" target="_blank"><span class="dls-truncate dls-flex-1">${meetLink}</span><i data-component="FontIcon" class="icon icon-redirect dls-size-icon-lg dls-text-icon-lg dls-ms-4"></i></a>
-                  </div>
+                  ${notes ? `<div class="fd-card-notes">${escapeHtml(notes)}</div>` : ''}
+                  ${meetLink ? `<a href="${escapeHtml(meetLink)}" class="fd-card-link" target="_blank"><span>${escapeHtml(meetLink)}</span><i data-component="FontIcon" class="icon icon-redirect dls-size-icon-sm dls-text-icon-sm"></i></a>` : ''}
+                  ${buildRescheduleFormHTML(today)}
                 </div>
               </div>
             </div>
@@ -74,20 +89,201 @@
     }).join('');
   }
 
+  function getGerenteMeetCardsHTML(meetings = []) {
+    if (!meetings || meetings.length === 0) {
+      return '<div class="fd-empty-state">No hay reuniones registradas</div>';
+    }
+
+    const today = getTodayDateValue();
+
+    return meetings.map(record => {
+      const fields = record.fields;
+      const recordId = record.id || '';
+      const calendarEventId = fields['Google Calendar Event ID'] || '';
+      const vendedora = fields['Vendedora'] || 'N/A';
+      const date = fields['Fecha'] ? new Date(fields['Fecha']).toLocaleDateString('es-ES', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A';
+      const status = fields['ESTADO'] || '';
+      const type = fields['Tipo de Reunion'] || 'Meet';
+      const phase = fields['Fase del Momento'] || 'N/A';
+      const meetLink = fields['Link de meet'] || '';
+      const registered = fields['Logramos Registro?'] === true ? '✅' : '❌';
+      const notes = fields['Notas'] || '';
+      const duration = fields['Duracion'] ? `${fields['Duracion']} min` : 'N/A';
+      const statusClass = getStatusBadgeClass(status);
+
+      return `
+        <div class="meet-card"
+             data-record-id="${escapeHtml(recordId)}"
+             data-calendar-event-id="${escapeHtml(calendarEventId)}"
+             data-vendedora="${escapeHtml(vendedora)}">
+          <div class="fd-card fd-card--gerente">
+            <div class="fd-card-header">
+              <div class="fd-card-row">
+                <span class="fd-card-type">${escapeHtml(type)}</span>
+                <span class="fd-badge fd-badge--gray">${escapeHtml(date)}</span>
+              </div>
+              <div class="fd-card-divider"></div>
+              <div class="fd-card-row">
+                <span class="fd-card-vendedora" style="font-weight:600;">${escapeHtml(vendedora)}</span>
+                <span class="${statusClass}">${escapeHtml(status || '–')}</span>
+              </div>
+            </div>
+            <div class="fd-card-body">
+              <div class="fd-card-details">
+                <div class="fd-card-detail-row">
+                  <span class="fd-card-detail-label">Fase</span>
+                  <span class="fd-card-detail-value">${escapeHtml(phase)}</span>
+                </div>
+                <div class="fd-card-detail-row">
+                  <span class="fd-card-detail-label">Duracion</span>
+                  <span class="fd-card-detail-value">${escapeHtml(duration)}</span>
+                </div>
+                <div class="fd-card-detail-row">
+                  <span class="fd-card-detail-label">Registro</span>
+                  <span class="fd-card-detail-value">${registered}</span>
+                </div>
+              </div>
+              ${notes ? `<div class="fd-card-notes">${escapeHtml(notes)}</div>` : ''}
+              ${meetLink ? `<a href="${escapeHtml(meetLink)}" class="fd-card-link" target="_blank"><span>${escapeHtml(meetLink)}</span><i data-component="FontIcon" class="icon icon-redirect dls-size-icon-sm dls-text-icon-sm"></i></a>` : ''}
+              ${buildRescheduleFormHTML(today)}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
   function addMeetCardListeners(container) {
-    container.addEventListener('click', (e) => {
+    container.addEventListener('click', async (e) => {
+      // Toggle extra info on card header click (skip for links and reschedule elements)
       const header = e.target.closest('.meet-card-header');
       if (header) {
-        // Prevent toggle if clicking the link button or any link inside
         if (e.target.closest('a') || e.target.tagName === 'A') return;
+        if (!e.target.closest('.reschedule-btn') && !e.target.closest('.reschedule-form')) {
+          const extraInfo = header.querySelector('.meet-card-extra-info');
+          if (extraInfo) {
+            const isHidden = extraInfo.style.display === 'none';
+            extraInfo.style.display = isHidden ? 'block' : 'none';
+            header.classList.toggle('is-open', isHidden);
+            header.closest('.fd-card')?.classList.toggle('is-open', isHidden);
+          }
+        }
+      }
 
-        const extraInfo = header.querySelector('.meet-card-extra-info');
-        if (extraInfo) {
-          const isHidden = extraInfo.style.display === 'none';
-          extraInfo.style.display = isHidden ? 'block' : 'none';
-          
-          // Optional: Add a class for styling purposes when open
-          header.classList.toggle('is-open', isHidden);
+      // Toggle reschedule form
+      const rescheduleBtn = e.target.closest('.reschedule-btn');
+      if (rescheduleBtn) {
+        const card = rescheduleBtn.closest('.meet-card');
+        const form = card?.querySelector('.reschedule-form');
+        if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+        return;
+      }
+
+      // Check availability for reschedule
+      const checkBtn = e.target.closest('.reschedule-check-btn');
+      if (checkBtn) {
+        const form = checkBtn.closest('.reschedule-form');
+        const card = checkBtn.closest('.meet-card');
+        const dateInput = form?.querySelector('.reschedule-date');
+        const durationSelect = form?.querySelector('.reschedule-duration');
+        const slotsContainer = form?.querySelector('.reschedule-slots');
+        const confirmBtn = form?.querySelector('.reschedule-confirm-btn');
+        const date = dateInput?.value;
+        const duration = durationSelect?.value || '30';
+
+        if (!date) {
+          setRescheduleMessage(form, 'Selecciona una fecha.', true);
+          return;
+        }
+
+        checkBtn.disabled = true;
+        checkBtn.textContent = 'Cargando...';
+        if (slotsContainer) slotsContainer.innerHTML = '';
+        if (confirmBtn) confirmBtn.disabled = true;
+        if (card) card.dataset.rescheduleSelectedTime = '';
+
+        try {
+          const slots = await fetchAvailability(date, duration);
+          if (!Array.isArray(slots) || !slots.length) {
+            if (slotsContainer) slotsContainer.innerHTML = '<div class="fd-empty-state">No hay horarios disponibles para este dia.</div>';
+          } else {
+            if (slotsContainer) slotsContainer.innerHTML = slots.map(slot => `
+              <button type="button" class="fd-slot-item reschedule-slot-item" data-time="${slot.time}" data-selected="false">
+                <span class="fd-slot-time">${slot.time}</span>
+                <span class="fd-slot-users">${slot.available_users.length} disponible${slot.available_users.length !== 1 ? 's' : ''}</span>
+              </button>
+            `).join('');
+          }
+          setRescheduleMessage(form, '');
+        } catch (err) {
+          setRescheduleMessage(form, 'Error al consultar disponibilidad.', true);
+        } finally {
+          checkBtn.disabled = false;
+          checkBtn.textContent = 'Ver horarios disponibles';
+        }
+        return;
+      }
+
+      // Select reschedule slot
+      const slotBtn = e.target.closest('.reschedule-slot-item');
+      if (slotBtn) {
+        const form = slotBtn.closest('.reschedule-form');
+        const card = slotBtn.closest('.meet-card');
+        const confirmBtn = form?.querySelector('.reschedule-confirm-btn');
+
+        form?.querySelectorAll('.reschedule-slot-item').forEach(s => {
+          s.dataset.selected = 'false';
+          s.classList.remove('fd-slot-item--selected');
+        });
+        slotBtn.dataset.selected = 'true';
+        slotBtn.classList.add('fd-slot-item--selected');
+
+        if (card) card.dataset.rescheduleSelectedTime = slotBtn.dataset.time || '';
+        if (confirmBtn) confirmBtn.disabled = false;
+        return;
+      }
+
+      // Confirm reschedule
+      const confirmBtn = e.target.closest('.reschedule-confirm-btn');
+      if (confirmBtn && !confirmBtn.disabled) {
+        const form = confirmBtn.closest('.reschedule-form');
+        const card = confirmBtn.closest('.meet-card');
+        const dateInput = form?.querySelector('.reschedule-date');
+        const durationSelect = form?.querySelector('.reschedule-duration');
+
+        const recordId = card?.dataset.recordId || '';
+        const oldCalendarEventId = card?.dataset.calendarEventId || '';
+        const oldVendedora = card?.dataset.vendedora || '';
+        const date = dateInput?.value || '';
+        const time = card?.dataset.rescheduleSelectedTime || '';
+        const duration = durationSelect?.value || '30';
+
+        const panel = document.getElementById('custom-side-panel');
+        const nombre = panel?.dataset.currentName || '';
+        const telefono = panel?.dataset.currentPhone || '';
+        const email = panel?.dataset.currentEmail || '';
+
+        if (!recordId || !date || !time) {
+          setRescheduleMessage(form, 'Faltan datos para reprogramar.', true);
+          return;
+        }
+
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Reprogramando...';
+        setRescheduleMessage(form, '');
+
+        try {
+          await rescheduleMeeting({ recordId, oldCalendarEventId, oldVendedora, date, time, duration, nombre, telefono, email });
+          if (telefono) {
+            const meetings = await fetchMeetingsData(telefono);
+            updatePanelWithData(null, meetings);
+          }
+          setAvailabilityMessage(panel, 'Reunion reprogramada correctamente.');
+        } catch (err) {
+          console.error('Extension FD: error al reprogramar', err);
+          setRescheduleMessage(form, 'No se pudo reprogramar la reunion.', true);
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = 'Confirmar reprogramacion';
         }
       }
     });
@@ -326,6 +522,14 @@
     });
   }
 
+  async function rescheduleMeeting({ recordId, oldCalendarEventId, oldVendedora, date, time, duration, nombre, telefono, email }) {
+    return fetchJson(`${API_BASE_URL}/reschedule`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recordId, oldCalendarEventId, oldVendedora, date, time, duration: Number(duration), nombre, telefono, email })
+    });
+  }
+
   async function createSellerBlock({ usuarioRecordId, fecha, motivo }) {
     return fetchJson(`${API_BASE_URL}/seller-blocks`, {
       method: 'POST',
@@ -356,33 +560,14 @@
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
   }
 
-  function getAvailabilityItemStyle(isSelected = false) {
-    return [
-      'width: 100%',
-      'display: flex',
-      'align-items: center',
-      'justify-content: space-between',
-      'gap: 10px',
-      'padding: 10px 12px',
-      'border-radius: 8px',
-      `border: 1px solid ${isSelected ? '#0B57D0' : 'rgba(202, 204, 211, 0.2)'}`,
-      `background: ${isSelected ? 'rgba(11, 87, 208, 0.14)' : 'rgba(255, 255, 255, 0.03)'}`,
-      'color: #CACCD3',
-      'cursor: pointer',
-      'transition: background-color 0.2s, border-color 0.2s',
-      'text-align: left'
-    ].join('; ');
+  function getAvailabilityItemClass(isSelected = false) {
+    return isSelected ? 'fd-slot-item fd-slot-item--selected' : 'fd-slot-item';
   }
 
   function setAvailabilityMessage(panel, message, isError = false) {
     const results = panel?.querySelector('#availability-results');
     if (!results) return;
-
-    results.innerHTML = `
-      <div style="padding: 14px 10px; border-radius: 8px; background: rgba(255, 255, 255, 0.03); color: ${isError ? '#f28b82' : '#CACCD3'}; text-align: center; font-size: 13px;">
-        ${message}
-      </div>
-    `;
+    results.innerHTML = `<div class="fd-msg${isError ? ' fd-msg--error' : ''}">${escapeHtml(message)}</div>`;
   }
 
   function setBookingMessage(panel, message, isError = false, link = '') {
@@ -397,23 +582,31 @@
 
     const safeMessage = escapeHtml(message);
     const safeLink = escapeHtml(link);
+    messageEl.className = `fd-msg${isError ? ' fd-msg--error' : ' fd-msg--success'}`;
     messageEl.innerHTML = safeLink
-      ? `${safeMessage}<a href="${safeLink}" target="_blank" rel="noopener noreferrer" style="display: inline-flex; width: 100%; box-sizing: border-box; justify-content: center; margin-top: 10px; padding: 9px 10px; border-radius: 8px; border: 1px solid #0B57D0; background: #0B57D0; color: #FFFFFF; text-decoration: none; font-weight: 700;">Abrir Meet</a>`
+      ? `${safeMessage}<a href="${safeLink}" target="_blank" rel="noopener noreferrer" class="fd-msg-link">Abrir Meet</a>`
       : safeMessage;
-    messageEl.style.display = message ? 'block' : 'none';
-    messageEl.style.color = isError ? '#f28b82' : '#CACCD3';
-    messageEl.style.borderColor = isError ? 'rgba(242, 139, 130, 0.35)' : 'rgba(202, 204, 211, 0.2)';
+    messageEl.style.display = 'block';
   }
 
   function setBookingButtonState(panel, enabled) {
     const bookButton = panel?.querySelector('#booking-create-btn');
     if (!bookButton) return;
-
     bookButton.disabled = !enabled;
-    bookButton.style.opacity = enabled ? '1' : '0.5';
-    bookButton.style.cursor = enabled ? 'pointer' : 'not-allowed';
-    bookButton.style.borderColor = enabled ? '#0B57D0' : 'rgba(202, 204, 211, 0.25)';
-    bookButton.style.background = enabled ? '#0B57D0' : 'rgba(255, 255, 255, 0.06)';
+  }
+
+  function getStatusBadgeClass(status) {
+    const s = (status || '').toLowerCase();
+    if (s === 'realizada') return 'fd-badge fd-badge--green';
+    if (s === 'pendiente') return 'fd-badge fd-badge--amber';
+    if (s === 'cancelada') return 'fd-badge fd-badge--gray';
+    return 'fd-badge fd-badge--gray';
+  }
+
+  function getInitials(name) {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    return name.slice(0, 2).toUpperCase();
   }
 
   function renderCurrentUser(panel, currentUser) {
@@ -424,11 +617,14 @@
       renderRoleActions(panel, null);
       container.innerHTML = `
         <div class="fd-user-status fd-user-status--warning">
-          <div>
-            <strong>Google no conectado</strong>
-            <span>Conecta tu cuenta para consultar disponibilidad y agendar.</span>
+          <div class="fd-user-identity">
+            <div class="fd-user-avatar fd-user-avatar--warning">!</div>
+            <div class="fd-user-info">
+              <div class="fd-user-name">Google no conectado</div>
+              <div class="fd-user-email">Conecta tu cuenta para continuar</div>
+            </div>
           </div>
-          <button type="button" id="fd-login-google-btn">Conectar</button>
+          <button type="button" id="fd-login-google-btn">Conectar con Google</button>
         </div>
       `;
       container.querySelector('#fd-login-google-btn')?.addEventListener('click', () => {
@@ -440,33 +636,66 @@
     const usuario = currentUser.usuario;
     const displayName = usuario?.nombre || currentUser.email;
     const role = usuario?.rol || currentUser.auth?.rol || 'Sin rol';
-    const canReceive = usuario?.puede_recibir_reuniones ? 'Recibe reuniones' : 'No recibe reuniones';
-    const canMeet = usuario?.puede_crear_meets ? 'Puede crear Meet' : 'No crea Meet';
+    const initials = getInitials(displayName);
 
-    container.innerHTML = `
-      <div class="fd-user-status">
-        <div>
-          <strong>${escapeHtml(displayName)} · ${escapeHtml(role)}</strong>
-          <span>${escapeHtml(currentUser.email)}</span>
+    if (role === 'Gerente') {
+      const puedeAtender = usuario?.puede_crear_meets === true;
+      container.innerHTML = `
+        <div class="fd-user-status">
+          <div class="fd-user-identity">
+            <div class="fd-user-avatar fd-user-avatar--gerente">${escapeHtml(initials)}</div>
+            <div class="fd-user-info">
+              <div class="fd-user-name">${escapeHtml(displayName)}</div>
+              <div class="fd-user-email">${escapeHtml(currentUser.email)}</div>
+            </div>
+          </div>
+          <div class="fd-badges">
+            <span class="fd-badge fd-badge--blue">Gerente</span>
+            ${puedeAtender
+              ? '<span class="fd-badge fd-badge--green">Atiende reuniones</span>'
+              : '<span class="fd-badge fd-badge--gray">No atiende reuniones</span>'
+            }
+          </div>
         </div>
-        <div class="fd-user-flags">
-          <span>${escapeHtml(canReceive)}</span>
-          <span>${escapeHtml(canMeet)}</span>
+      `;
+    } else {
+      const recibe = usuario?.puede_recibir_reuniones;
+      const meet = usuario?.puede_crear_meets;
+      container.innerHTML = `
+        <div class="fd-user-status">
+          <div class="fd-user-identity">
+            <div class="fd-user-avatar fd-user-avatar--vendedora">${escapeHtml(initials)}</div>
+            <div class="fd-user-info">
+              <div class="fd-user-name">${escapeHtml(displayName)}</div>
+              <div class="fd-user-email">${escapeHtml(currentUser.email)}</div>
+            </div>
+          </div>
+          <div class="fd-badges">
+            <span class="fd-badge fd-badge--violet">Vendedora</span>
+            <span class="fd-badge ${recibe ? 'fd-badge--green' : 'fd-badge--gray'}">${recibe ? 'Recibe reuniones' : 'No recibe'}</span>
+            ${meet ? '<span class="fd-badge fd-badge--blue">Meet</span>' : ''}
+          </div>
         </div>
-      </div>
-    `;
+      `;
+    }
 
     renderRoleActions(panel, currentUser);
+  }
+
+  function setRescheduleMessage(form, message, isError = false) {
+    const el = form?.querySelector('.reschedule-message');
+    if (!el) return;
+    el.textContent = message || '';
+    el.style.display = message ? 'block' : 'none';
+    el.className = `reschedule-message fd-msg${message ? (isError ? ' fd-msg--error' : ' fd-msg--success') : ''}`;
   }
 
   function setRoleActionMessage(panel, message, isError = false) {
     const messageEl = panel?.querySelector('#fd-role-action-message');
     if (!messageEl) return;
-
     messageEl.textContent = message || '';
     messageEl.style.display = message ? 'block' : 'none';
-    messageEl.style.color = isError ? '#f28b82' : '#CACCD3';
-    messageEl.style.borderColor = isError ? 'rgba(242, 139, 130, 0.35)' : 'rgba(202, 204, 211, 0.2)';
+    messageEl.className = `fd-role-action-message fd-msg${message ? (isError ? ' fd-msg--error' : '') : ''}`;
   }
 
   function renderRoleActions(panel, currentUser) {
@@ -476,7 +705,8 @@
     const usuario = currentUser?.usuario;
     const role = usuario?.rol || currentUser?.auth?.rol || '';
 
-    if (!currentUser?.authenticated || role !== 'Vendedora' || !usuario?.recordId) {
+    const puedeBloquear = role === 'Vendedora' || (role === 'Gerente' && usuario?.puede_crear_meets === true);
+    if (!currentUser?.authenticated || !puedeBloquear || !usuario?.recordId) {
       container.innerHTML = '';
       return;
     }
@@ -535,14 +765,210 @@
     });
   }
 
+  function renderGerenteSection(panel) {
+    const container = panel?.querySelector('#fd-gerente-section');
+    if (!container) return;
+
+    container.innerHTML = `
+      <button type="button" id="fd-equipo-btn">
+        <span>Gestion del equipo</span>
+        <i data-component="FontIcon" class="icon icon-chevron-right dls-size-icon-lg dls-text-icon-lg"></i>
+      </button>
+    `;
+
+    container.querySelector('#fd-equipo-btn')?.addEventListener('click', () => openEquipoView(panel));
+  }
+
+  function openEquipoView(panel) {
+    const main = panel?.querySelector('#fd-panel-main');
+    const view = panel?.querySelector('#fd-equipo-view');
+    if (!main || !view) return;
+    main.style.display = 'none';
+    view.style.display = 'flex';
+    renderEquipoView(panel, view);
+  }
+
+  function closeEquipoView(panel) {
+    const main = panel?.querySelector('#fd-panel-main');
+    const view = panel?.querySelector('#fd-equipo-view');
+    if (!main || !view) return;
+    view.style.display = '';
+    main.style.display = '';
+  }
+
+  async function loadSellersIntoView(view) {
+    const listEl = view.querySelector('#fd-equipo-list');
+    if (!listEl) return;
+    listEl.innerHTML = '<div class="fd-empty-state">Cargando vendedoras...</div>';
+
+    try {
+      const sellers = await fetchJson(`${API_BASE_URL}/sellers`);
+      if (!sellers.length) {
+        listEl.innerHTML = '<div class="fd-empty-state">Sin vendedoras registradas.</div>';
+        return;
+      }
+
+      listEl.innerHTML = sellers.map(seller => {
+        const activa = seller.activa;
+        const recibe = seller.puede_recibir_reuniones;
+        const meet = seller.puede_crear_meets;
+        const rid = escapeHtml(seller.recordId || '');
+        return `
+          <div class="fd-seller-card">
+            <div class="fd-seller-top">
+              <span class="fd-seller-name">${escapeHtml(seller.nombre || seller.correo)}</span>
+              <div class="fd-badges">
+                <span class="fd-badge ${activa ? 'fd-badge--green' : 'fd-badge--gray'}">${activa ? 'Activa' : 'Inactiva'}</span>
+                <span class="fd-badge ${recibe ? 'fd-badge--blue' : 'fd-badge--gray'}">${recibe ? 'Recibe' : 'No recibe'}</span>
+                ${meet ? '<span class="fd-badge fd-badge--blue">Meet</span>' : ''}
+              </div>
+            </div>
+            <div class="fd-seller-email">${escapeHtml(seller.correo || '')}</div>
+            <div class="fd-seller-actions">
+              <button type="button" class="fd-seller-btn fd-seller-toggle" data-id="${rid}" data-action="toggle-active">${activa ? 'Desactivar' : 'Activar'}</button>
+              <button type="button" class="fd-seller-btn fd-seller-toggle" data-id="${rid}" data-action="toggle-receives">${recibe ? 'Sin reuniones' : 'Con reuniones'}</button>
+              <button type="button" class="fd-seller-btn fd-seller-toggle" data-id="${rid}" data-action="toggle-meets">${meet ? 'Sin Meet' : 'Con Meet'}</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      listEl.querySelectorAll('.fd-seller-toggle').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.id;
+          const action = btn.dataset.action;
+          if (!id) return;
+
+          btn.disabled = true;
+          btn.textContent = '···';
+
+          try {
+            const currentSellers = await fetchJson(`${API_BASE_URL}/sellers`);
+            const seller = currentSellers.find(s => s.recordId === id);
+            if (!seller) throw new Error('Vendedora no encontrada');
+
+            let body;
+            if (action === 'toggle-active') {
+              body = { activa: !seller.activa, puede_recibir_reuniones: seller.activa ? false : seller.puede_recibir_reuniones };
+            } else if (action === 'toggle-receives') {
+              body = { puede_recibir_reuniones: !seller.puede_recibir_reuniones };
+            } else {
+              body = { puede_crear_meets: !seller.puede_crear_meets };
+            }
+
+            await fetchJson(`${API_BASE_URL}/sellers/${id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body)
+            });
+
+            await loadSellersIntoView(view);
+          } catch (err) {
+            console.error('Extension FD: error al actualizar vendedora', err);
+            btn.disabled = false;
+            btn.textContent = 'Error';
+            setTimeout(() => loadSellersIntoView(view), 1200);
+          }
+        });
+      });
+    } catch (err) {
+      console.error('Extension FD: error al cargar vendedoras', err);
+      listEl.innerHTML = '<div class="fd-msg fd-msg--error">Error al cargar las vendedoras.</div>';
+    }
+  }
+
+  function setAddSellerMessage(msgEl, text, isError) {
+    if (!msgEl) return;
+    msgEl.textContent = text;
+    msgEl.className = `fd-msg ${isError ? 'fd-msg--error' : 'fd-msg--success'}`;
+    msgEl.style.display = text ? 'block' : 'none';
+  }
+
+  function renderEquipoView(panel, view) {
+    view.innerHTML = `
+      <div class="fd-equipo-topbar">
+        <button type="button" id="fd-equipo-back" class="fd-equipo-back-btn">
+          <i data-component="FontIcon" class="icon icon-chevron-left dls-size-icon-lg dls-text-icon-lg"></i>
+          Volver
+        </button>
+        <span class="fd-equipo-title">Gestion del equipo</span>
+      </div>
+
+      <div id="fd-equipo-list"></div>
+
+      <div class="fd-add-seller-section">
+        <div class="fd-add-seller-title">Agregar vendedora</div>
+        <div class="fd-add-seller-form">
+          <input id="fd-new-seller-id" type="text" placeholder="ID (ej: V001)" />
+          <input id="fd-new-seller-nombre" type="text" placeholder="Nombre completo" />
+          <input id="fd-new-seller-correo" type="email" placeholder="Correo electronico" />
+          <input id="fd-new-seller-telefono" type="text" placeholder="Telefono (opcional)" />
+          <button type="button" id="fd-add-seller-btn" class="fd-add-seller-btn">Agregar vendedora</button>
+          <div id="fd-add-seller-msg" class="fd-msg" style="display:none;"></div>
+        </div>
+      </div>
+    `;
+
+    view.querySelector('#fd-equipo-back')?.addEventListener('click', () => closeEquipoView(panel));
+
+    loadSellersIntoView(view);
+
+    view.querySelector('#fd-add-seller-btn')?.addEventListener('click', async () => {
+      const idInput = view.querySelector('#fd-new-seller-id');
+      const nombreInput = view.querySelector('#fd-new-seller-nombre');
+      const correoInput = view.querySelector('#fd-new-seller-correo');
+      const telefonoInput = view.querySelector('#fd-new-seller-telefono');
+      const msgEl = view.querySelector('#fd-add-seller-msg');
+      const addBtn = view.querySelector('#fd-add-seller-btn');
+
+      const id = idInput?.value.trim();
+      const nombre = nombreInput?.value.trim();
+      const correo = correoInput?.value.trim();
+      const telefono = telefonoInput?.value.trim();
+
+      if (!id || !nombre || !correo) {
+        setAddSellerMessage(msgEl, 'ID, nombre y correo son obligatorios.', true);
+        return;
+      }
+
+      addBtn.disabled = true;
+      addBtn.textContent = 'Agregando...';
+      msgEl.style.display = 'none';
+
+      try {
+        await fetchJson(`${API_BASE_URL}/sellers`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, nombre, correo, telefono })
+        });
+
+        if (idInput) idInput.value = '';
+        if (nombreInput) nombreInput.value = '';
+        if (correoInput) correoInput.value = '';
+        if (telefonoInput) telefonoInput.value = '';
+        setAddSellerMessage(msgEl, 'Vendedora agregada correctamente.', false);
+        await loadSellersIntoView(view);
+      } catch (err) {
+        console.error('Extension FD: error al agregar vendedora', err);
+        setAddSellerMessage(msgEl, 'No se pudo agregar la vendedora.', true);
+      } finally {
+        addBtn.disabled = false;
+        addBtn.textContent = 'Agregar vendedora';
+      }
+    });
+  }
+
   async function refreshCurrentUser(panel) {
     const container = panel?.querySelector('#fd-current-user');
     if (container) {
       container.innerHTML = `
         <div class="fd-user-status">
-          <div>
-            <strong>Cargando usuario...</strong>
-            <span>Consultando sesion actual</span>
+          <div class="fd-user-identity">
+            <div class="fd-user-avatar fd-user-avatar--gray">···</div>
+            <div class="fd-user-info">
+              <div class="fd-user-name">Cargando usuario...</div>
+              <div class="fd-user-email">Consultando sesion actual</div>
+            </div>
           </div>
         </div>
       `;
@@ -553,14 +979,24 @@
       panel.dataset.currentUserRole = currentUser?.usuario?.rol || currentUser?.auth?.rol || '';
       panel.dataset.currentUserEmail = currentUser?.email || '';
       renderCurrentUser(panel, currentUser);
+
+      const gerenteSection = panel?.querySelector('#fd-gerente-section');
+      if (panel.dataset.currentUserRole === 'Gerente') {
+        renderGerenteSection(panel);
+      } else if (gerenteSection) {
+        gerenteSection.innerHTML = '';
+      }
     } catch (error) {
       console.error('Extension FD: error al obtener usuario actual', error);
       if (container) {
         container.innerHTML = `
           <div class="fd-user-status fd-user-status--warning">
-            <div>
-              <strong>No se pudo cargar la sesion</strong>
-              <span>Revisa que el backend este activo.</span>
+            <div class="fd-user-identity">
+              <div class="fd-user-avatar fd-user-avatar--warning">!</div>
+              <div class="fd-user-info">
+                <div class="fd-user-name">No se pudo cargar la sesion</div>
+                <div class="fd-user-email">Revisa que el backend este activo.</div>
+              </div>
             </div>
           </div>
         `;
@@ -574,7 +1010,7 @@
     panel.dataset.selectedBookingTime = '';
     panel.querySelectorAll('.availability-slot-item').forEach(slotItem => {
       slotItem.dataset.selected = 'false';
-      slotItem.style.cssText = getAvailabilityItemStyle(false);
+      slotItem.classList.remove('fd-slot-item--selected');
     });
     setBookingButtonState(panel, false);
   }
@@ -595,14 +1031,9 @@
     setBookingButtonState(panel, false);
 
     results.innerHTML = slots.map(slot => `
-      <button
-        type="button"
-        class="availability-slot-item"
-        data-time="${slot.time}"
-        style="${getAvailabilityItemStyle(false)}"
-      >
-        <span style="font-size: 14px; font-weight: 600; color: #FFFFFF;">${slot.time}</span>
-        <span style="font-size: 12px; color: #CACCD3;">Disponible (${slot.available_users.length} vendedora${slot.available_users.length === 1 ? '' : 's'})</span>
+      <button type="button" class="fd-slot-item availability-slot-item" data-time="${slot.time}" data-selected="false">
+        <span class="fd-slot-time">${slot.time}</span>
+        <span class="fd-slot-users">${slot.available_users.length} disponible${slot.available_users.length === 1 ? '' : 's'}</span>
       </button>
     `).join('');
   }
@@ -654,31 +1085,17 @@
       }
     });
 
-    results?.addEventListener('mouseover', (event) => {
-      const item = event.target.closest('.availability-slot-item');
-      if (!item || item.dataset.selected === 'true') return;
-      item.style.background = 'rgba(11, 87, 208, 0.08)';
-      item.style.borderColor = 'rgba(11, 87, 208, 0.5)';
-    });
-
-    results?.addEventListener('mouseout', (event) => {
-      const item = event.target.closest('.availability-slot-item');
-      if (!item || item.dataset.selected === 'true') return;
-      item.style.background = 'rgba(255, 255, 255, 0.03)';
-      item.style.borderColor = 'rgba(202, 204, 211, 0.2)';
-    });
-
     results?.addEventListener('click', (event) => {
       const item = event.target.closest('.availability-slot-item');
       if (!item) return;
 
-      results.querySelectorAll('.availability-slot-item').forEach(slotItem => {
-        slotItem.dataset.selected = 'false';
-        slotItem.style.cssText = getAvailabilityItemStyle(false);
+      results.querySelectorAll('.availability-slot-item').forEach(s => {
+        s.dataset.selected = 'false';
+        s.classList.remove('fd-slot-item--selected');
       });
 
       item.dataset.selected = 'true';
-      item.style.cssText = getAvailabilityItemStyle(true);
+      item.classList.add('fd-slot-item--selected');
       panel.dataset.selectedBookingTime = item.dataset.time || '';
       setBookingMessage(panel, '');
       setBookingButtonState(panel, true);
@@ -796,45 +1213,48 @@
       }
     }
 
-    const meetingsHTML = getMeetCardsHTML(meetings);
+    const role = panel?.dataset.currentUserRole || '';
+    const meetingsHTML = role === 'Gerente' ? getGerenteMeetCardsHTML(meetings) : getMeetCardsHTML(meetings);
     const panelMeetingsContainer = panel?.querySelector('.panel-section-summary > div');
-    if (panelMeetingsContainer) panelMeetingsContainer.innerHTML = meetingsHTML;
+    if (panelMeetingsContainer) {
+      const count = meetings?.length || 0;
+      const headerHTML = `<div class="fd-meets-header"><span class="fd-meets-title">Reuniones</span><span class="fd-meets-count">${count}</span></div>`;
+      panelMeetingsContainer.innerHTML = headerHTML + meetingsHTML;
+    }
+
+    // Stats from meetings array
+    if (panel) {
+      const sorted = [...meetings].sort((a, b) => new Date(b.fields['Fecha'] || 0) - new Date(a.fields['Fecha'] || 0));
+      const last = sorted[0];
+      const status = last?.fields['ESTADO'] || '';
+      const note = last?.fields['Notas'] || '';
+
+      const countEl = panel.querySelector('#fd-stat-count');
+      const dateEl = panel.querySelector('#fd-stat-date');
+      const statusEl = panel.querySelector('#fd-stat-status');
+      const noteEl = panel.querySelector('#fd-stat-note');
+
+      if (countEl) countEl.textContent = String(meetings.length);
+      if (dateEl) dateEl.textContent = last ? formatAirtableDate(last.fields['Fecha']) : '–';
+      if (statusEl) statusEl.innerHTML = `<span class="${getStatusBadgeClass(status)}">${escapeHtml(status || '–')}</span>`;
+      if (noteEl) noteEl.textContent = note || 'Sin notas';
+    }
 
     if (!panel || !fields) return;
 
-    const copyableItems = panel.querySelectorAll('.copyable-item');
-    if (copyableItems.length >= 2) {
-      // Phone
-      const phoneSpan = copyableItems[0].querySelector('span');
-      if (phoneSpan) phoneSpan.textContent = fields['Telefono'] || 'N/A';
-      copyableItems[0].setAttribute('data-copy', fields['Telefono'] || '');
-
-      // Email
-      const emailSpan = copyableItems[1].querySelector('span');
-      if (emailSpan) emailSpan.textContent = fields['Correo'] || 'N/A';
-      copyableItems[1].setAttribute('data-copy', fields['Correo'] || '');
+    const phoneEl = panel.querySelector('#fd-contact-phone');
+    if (phoneEl) {
+      const v = fields['Telefono'] || '';
+      phoneEl.querySelector('.fd-contact-value').textContent = v || 'N/A';
+      phoneEl.setAttribute('data-copy', v);
     }
 
-    const summaryRows = panel.querySelectorAll('.summary-row-inline, .summary-row');
-    summaryRows.forEach(row => {
-      const label = row.querySelector('span')?.textContent;
-      const valueSpan = row.querySelector('.dls-truncate, .nota-valor');
-      
-      if (label && valueSpan) {
-        if (label.includes('Cant Reuniones')) {
-          valueSpan.textContent = fields['Cantidad de Reuniones'] || '0';
-        } else if (label.includes('Ultima Reunion')) {
-          const date = Array.isArray(fields['Ultima Reunion']) ? fields['Ultima Reunion'][0] : fields['Ultima Reunion'];
-          valueSpan.textContent = formatAirtableDate(date);
-        } else if (label.includes('Estado Reunion')) {
-          const status = Array.isArray(fields['Estado Ult Reunion']) ? fields['Estado Ult Reunion'][0] : fields['Estado Ult Reunion'];
-          valueSpan.textContent = status || 'N/A';
-        } else if (label.includes('Nota Reunion')) {
-          const note = Array.isArray(fields['Nota Ultima Reunion']) ? fields['Nota Ultima Reunion'][0] : fields['Nota Ultima Reunion'];
-          valueSpan.textContent = note ? `"${note}"` : '"Sin notas"';
-        }
-      }
-    });
+    const emailEl = panel.querySelector('#fd-contact-email');
+    if (emailEl) {
+      const v = fields['Correo'] || '';
+      emailEl.querySelector('.fd-contact-value').textContent = v || 'N/A';
+      emailEl.setAttribute('data-copy', v);
+    }
   }
 
   const btn = document.createElement('div');
@@ -853,7 +1273,7 @@
   const isRespond = window.location.hostname === 'app.respond.io';
 
   if (isMeet) {
-    btn.style.backgroundColor = '#0B57D0';
+    btn.classList.add('fd-btn--meet');
   }
 
   document.body.appendChild(btn);
@@ -913,63 +1333,73 @@
             </div>
           </div>
         </div>
+        <div id="fd-panel-main">
         <div id="fd-role-actions"></div>
+        <div id="fd-gerente-section"></div>
         <div class="separator"></div>
-        <div class="panel-subtitle dls-txt-h4">Contacto sin Reuniones</div>
-        <div class="copyable-item" data-copy="465498765346">
-          <span style="font-weight:100;" class="dls-txt-h5">465498765346</span>
-          <i data-component="FontIcon" class="icon icon-copy dls-size-icon-sm dls-text-icon-sm"></i>
+        <div class="panel-subtitle">Contacto sin Reuniones</div>
+        <div class="fd-contact-fields">
+          <div class="copyable-item" id="fd-contact-phone" data-copy="465498765346">
+            <span class="fd-contact-label">Tel.</span>
+            <span class="fd-contact-value">465498765346</span>
+            <i data-component="FontIcon" class="icon icon-copy dls-size-icon-sm dls-text-icon-sm"></i>
+          </div>
+          <div class="copyable-item" id="fd-contact-email" data-copy="sincorreo">
+            <span class="fd-contact-label">Email</span>
+            <span class="fd-contact-value">sincorreo</span>
+            <i data-component="FontIcon" class="icon icon-copy dls-size-icon-sm dls-text-icon-sm"></i>
+          </div>
         </div>
-        <div class="copyable-item" data-copy="sincorreo">
-          <span style="font-weight:100;" class="dls-txt-h5">sincorreo</span>
-          <i data-component="FontIcon" class="icon icon-copy dls-size-icon-sm dls-text-icon-sm"></i>
+        <div class="fd-stats-grid">
+          <div class="fd-stat-card">
+            <div class="fd-stat-label">Reuniones</div>
+            <div class="fd-stat-value" id="fd-stat-count">–</div>
+          </div>
+          <div class="fd-stat-card">
+            <div class="fd-stat-label">Ultima reunion</div>
+            <div class="fd-stat-value fd-stat-value--sm" id="fd-stat-date">–</div>
+          </div>
+          <div class="fd-stat-card fd-stat-card--full">
+            <div class="fd-stat-label">Estado</div>
+            <div id="fd-stat-status"><span class="fd-badge fd-badge--gray">–</span></div>
+          </div>
         </div>
-        <div class="summary-row-inline" style="margin-top: 15px;"><span>Cant Reuniones:</span> <span class="dls-whitespace-nowrap dls-truncate">1</span></div>
-        <div class="summary-row-inline"><span>Ultima Reunion:</span> <span class="dls-whitespace-nowrap dls-truncate">2026-02-04 16:30</span></div>
-        <div class="summary-row-inline"><span>Estado Reunion:</span> <span class="dls-whitespace-nowrap dls-truncate">Cancelado</span></div>
-        <div class="summary-row">
-          <span>Nota Reunion:</span>
-          <div class="nota-valor">"Sin notas"</div>
+        <div class="fd-note-card">
+          <div class="fd-note-label">Notas</div>
+          <div class="nota-valor" id="fd-stat-note">Sin notas</div>
         </div>
         <div class="separator"></div>
-        <div class="availability-section" style="display: flex; flex-direction: column; gap: 10px;">
-          <div class="dls-txt-h5" style="color: #FFFFFF;">Disponibilidad</div>
-          <div style="display: flex; flex-direction: column; gap: 10px;">
-            <input id="availability-date" type="date" style="width: 100%; box-sizing: border-box; background: #2b2b2e; color: #CACCD3; border: 1px solid rgba(202, 204, 211, 0.25); border-radius: 8px; padding: 10px 12px;" />
-            <select id="availability-duration" style="width: 100%; box-sizing: border-box; background: #2b2b2e; color: #CACCD3; border: 1px solid rgba(202, 204, 211, 0.25); border-radius: 8px; padding: 10px 12px;">
+        <div class="availability-section">
+          <div class="fd-section-title">Disponibilidad</div>
+          <div class="fd-form-stack">
+            <input id="availability-date" type="date" />
+            <select id="availability-duration">
               <option value="15">15 min</option>
               <option value="30" selected>30 min</option>
               <option value="60">60 min</option>
             </select>
-            <button id="availability-check-btn" type="button" style="width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; border: 1px solid #0B57D0; background: #0B57D0; color: #FFFFFF; font-weight: 600; cursor: pointer;">
-              Ver disponibilidad
-            </button>
+            <button id="availability-check-btn" type="button">Ver disponibilidad</button>
           </div>
-          <div id="availability-results" style="display: flex; flex-direction: column; gap: 8px;">
-            <div style="padding: 14px 10px; border-radius: 8px; background: rgba(255, 255, 255, 0.03); color: #CACCD3; text-align: center; font-size: 13px;">
-              Selecciona una fecha y duracion para consultar horarios
-            </div>
+          <div id="availability-results">
+            <div class="fd-empty-state">Selecciona una fecha y duracion para consultar horarios</div>
           </div>
-          <button id="booking-create-btn" type="button" disabled style="width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(202, 204, 211, 0.25); background: rgba(255, 255, 255, 0.06); color: #FFFFFF; font-weight: 600; cursor: not-allowed; opacity: 0.5;">
-            Agendar reunion
-          </button>
-          <div id="booking-message" style="display: none; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(202, 204, 211, 0.2); background: rgba(255, 255, 255, 0.03); color: #CACCD3; font-size: 13px; line-height: 1.4; word-break: break-word;"></div>
+          <button id="booking-create-btn" type="button" disabled>Agendar reunion</button>
+          <div id="booking-message" style="display:none;"></div>
         </div>
         <div class="separator"></div>
-      </div>
-      <div class="panel-section-summary">
+        <div class="panel-section-summary">
           <div style="overflow-anchor: none; flex: 0 0 auto; position: relative; width: 100%;">
             ${getMeetCardsHTML()}
           </div>
         </div>
+      </div>
+      <div id="fd-equipo-view"></div>
     `;
     document.body.appendChild(panelOrForm);
 
     // Add listeners for the meet cards
     const sectionSummary = panelOrForm.querySelector('.panel-section-summary');
-    if (sectionSummary) {
-      addMeetCardListeners(sectionSummary);
-    }
+    if (sectionSummary) addMeetCardListeners(sectionSummary);
     bindAvailabilityInteractions(panelOrForm);
 
     // Respond side-panel specific logic
@@ -1030,10 +1460,11 @@
       item.addEventListener('click', () => {
         const text = item.getAttribute('data-copy');
         navigator.clipboard.writeText(text).then(() => {
-          const span = item.querySelector('span');
-          const originalColor = span.style.color;
-          span.style.color = '#fff';
-          setTimeout(() => span.style.color = originalColor, 500);
+          const icon = item.querySelector('i');
+          if (icon) {
+            icon.classList.add('fd-copy-flash');
+            setTimeout(() => icon.classList.remove('fd-copy-flash'), 600);
+          }
         });
       });
     });
@@ -1251,17 +1682,17 @@
         panelOrForm.style.right = isOpen ? '0' : `-${panelOrForm.offsetWidth}px`;
         
         if (isOpen) {
-          refreshCurrentUser(panelOrForm);
           const phone = getRespondPagePhone();
           if (!phone) {
             console.warn('Extension FD: no se encontró un número tras "para:" en un div con clases dls-whitespace-nowrap dls-truncate');
+            refreshCurrentUser(panelOrForm);
           } else {
-            fetchContactData(phone).then(async fields => {
+            (async () => {
+              await refreshCurrentUser(panelOrForm);
+              const fields = await fetchContactData(phone);
               const meetings = await fetchMeetingsData(phone);
-              if (fields) {
-                updatePanelWithData(fields, meetings);
-              }
-            });
+              if (fields) updatePanelWithData(fields, meetings);
+            })();
           }
         }
       } else if (isMeet) {
