@@ -163,6 +163,11 @@ async function getActiveUsers() {
   return (response.data.records || []).map(mapRecordToUser);
 }
 
+async function getAuthUserByEmail(email) {
+  const record = await findUserRecordByEmail(email);
+  return record ? mapRecordToUser(record) : null;
+}
+
 async function resetUsers() {
   const activeUsers = await getActiveUsers();
 
@@ -186,6 +191,7 @@ async function resetUsers() {
 
 module.exports = {
   saveUser,
+  getAuthUserByEmail,
   getActiveUsers,
   resetUsers,
   normalizeRole

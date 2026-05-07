@@ -105,7 +105,10 @@
   }
 
   async function fetchJson(url, options = {}) {
-    const response = await fetch(url, options);
+    const response = await fetch(url, {
+      credentials: 'include',
+      ...options
+    });
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`HTTP ${response.status}: ${errorText}`);
@@ -302,6 +305,10 @@
     return fetchJson(`${API_BASE_URL}/availability?${params.toString()}`);
   }
 
+  async function fetchCurrentUser() {
+    return fetchJson(`${API_BASE_URL}/me`);
+  }
+
   async function bookMeeting({ telefono, nombre, email, date, time, duration }) {
     return fetchJson(`${API_BASE_URL}/book`, {
       method: 'POST',
@@ -315,6 +322,23 @@
         date,
         time,
         duration: Number(duration)
+      })
+    });
+  }
+
+  async function createSellerBlock({ usuarioRecordId, fecha, motivo }) {
+    return fetchJson(`${API_BASE_URL}/seller-blocks`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        id: `bloq-${usuarioRecordId}-${fecha}-${Date.now()}`,
+        usuarioRecordId,
+        fecha,
+        todo_el_dia: true,
+        motivo: motivo || 'Bloqueo creado desde la extension',
+        activo: true
       })
     });
   }
@@ -390,6 +414,158 @@
     bookButton.style.cursor = enabled ? 'pointer' : 'not-allowed';
     bookButton.style.borderColor = enabled ? '#0B57D0' : 'rgba(202, 204, 211, 0.25)';
     bookButton.style.background = enabled ? '#0B57D0' : 'rgba(255, 255, 255, 0.06)';
+  }
+
+  function renderCurrentUser(panel, currentUser) {
+    const container = panel?.querySelector('#fd-current-user');
+    if (!container) return;
+
+    if (!currentUser?.authenticated) {
+      renderRoleActions(panel, null);
+      container.innerHTML = `
+        <div class="fd-user-status fd-user-status--warning">
+          <div>
+            <strong>Google no conectado</strong>
+            <span>Conecta tu cuenta para consultar disponibilidad y agendar.</span>
+          </div>
+          <button type="button" id="fd-login-google-btn">Conectar</button>
+        </div>
+      `;
+      container.querySelector('#fd-login-google-btn')?.addEventListener('click', () => {
+        window.open('http://localhost:3000/auth/google', '_blank', 'noopener,noreferrer');
+      });
+      return;
+    }
+
+    const usuario = currentUser.usuario;
+    const displayName = usuario?.nombre || currentUser.email;
+    const role = usuario?.rol || currentUser.auth?.rol || 'Sin rol';
+    const canReceive = usuario?.puede_recibir_reuniones ? 'Recibe reuniones' : 'No recibe reuniones';
+    const canMeet = usuario?.puede_crear_meets ? 'Puede crear Meet' : 'No crea Meet';
+
+    container.innerHTML = `
+      <div class="fd-user-status">
+        <div>
+          <strong>${escapeHtml(displayName)} · ${escapeHtml(role)}</strong>
+          <span>${escapeHtml(currentUser.email)}</span>
+        </div>
+        <div class="fd-user-flags">
+          <span>${escapeHtml(canReceive)}</span>
+          <span>${escapeHtml(canMeet)}</span>
+        </div>
+      </div>
+    `;
+
+    renderRoleActions(panel, currentUser);
+  }
+
+  function setRoleActionMessage(panel, message, isError = false) {
+    const messageEl = panel?.querySelector('#fd-role-action-message');
+    if (!messageEl) return;
+
+    messageEl.textContent = message || '';
+    messageEl.style.display = message ? 'block' : 'none';
+    messageEl.style.color = isError ? '#f28b82' : '#CACCD3';
+    messageEl.style.borderColor = isError ? 'rgba(242, 139, 130, 0.35)' : 'rgba(202, 204, 211, 0.2)';
+  }
+
+  function renderRoleActions(panel, currentUser) {
+    const container = panel?.querySelector('#fd-role-actions');
+    if (!container) return;
+
+    const usuario = currentUser?.usuario;
+    const role = usuario?.rol || currentUser?.auth?.rol || '';
+
+    if (!currentUser?.authenticated || role !== 'Vendedora' || !usuario?.recordId) {
+      container.innerHTML = '';
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="fd-role-card">
+        <div>
+          <strong>Mi disponibilidad</strong>
+          <span>Bloquea un dia completo para no recibir reuniones.</span>
+        </div>
+        <input id="fd-block-date" type="date" />
+        <textarea id="fd-block-reason" rows="2" placeholder="Motivo opcional"></textarea>
+        <button type="button" id="fd-block-day-btn">Bloquear mi dia</button>
+        <div id="fd-role-action-message" class="fd-role-action-message"></div>
+      </div>
+    `;
+
+    const dateInput = container.querySelector('#fd-block-date');
+    const reasonInput = container.querySelector('#fd-block-reason');
+    const blockButton = container.querySelector('#fd-block-day-btn');
+
+    if (dateInput && !dateInput.value) {
+      dateInput.value = getTodayDateValue();
+      dateInput.min = getTodayDateValue();
+    }
+
+    blockButton?.addEventListener('click', async () => {
+      const fecha = dateInput?.value || '';
+      if (!fecha) {
+        setRoleActionMessage(panel, 'Selecciona una fecha para bloquear.', true);
+        return;
+      }
+
+      blockButton.disabled = true;
+      blockButton.textContent = 'Bloqueando...';
+      setRoleActionMessage(panel, 'Creando bloqueo...');
+
+      try {
+        await createSellerBlock({
+          usuarioRecordId: usuario.recordId,
+          fecha,
+          motivo: reasonInput?.value || ''
+        });
+        setRoleActionMessage(panel, 'Dia bloqueado correctamente.');
+        if (reasonInput) reasonInput.value = '';
+        panel.dataset.selectedBookingTime = '';
+        setBookingButtonState(panel, false);
+        setAvailabilityMessage(panel, 'Dia bloqueado. Volve a consultar disponibilidad si necesitas revisar horarios.');
+      } catch (error) {
+        console.error('Extension FD: error al bloquear dia', error);
+        setRoleActionMessage(panel, 'No se pudo crear el bloqueo.', true);
+      } finally {
+        blockButton.disabled = false;
+        blockButton.textContent = 'Bloquear mi dia';
+      }
+    });
+  }
+
+  async function refreshCurrentUser(panel) {
+    const container = panel?.querySelector('#fd-current-user');
+    if (container) {
+      container.innerHTML = `
+        <div class="fd-user-status">
+          <div>
+            <strong>Cargando usuario...</strong>
+            <span>Consultando sesion actual</span>
+          </div>
+        </div>
+      `;
+    }
+
+    try {
+      const currentUser = await fetchCurrentUser();
+      panel.dataset.currentUserRole = currentUser?.usuario?.rol || currentUser?.auth?.rol || '';
+      panel.dataset.currentUserEmail = currentUser?.email || '';
+      renderCurrentUser(panel, currentUser);
+    } catch (error) {
+      console.error('Extension FD: error al obtener usuario actual', error);
+      if (container) {
+        container.innerHTML = `
+          <div class="fd-user-status fd-user-status--warning">
+            <div>
+              <strong>No se pudo cargar la sesion</strong>
+              <span>Revisa que el backend este activo.</span>
+            </div>
+          </div>
+        `;
+      }
+    }
   }
 
   function clearSelectedBookingSlot(panel) {
@@ -729,6 +905,16 @@
           <div class="dls-txt-h4">Reuniones</div>
         </div>
         <div class="separator"></div>
+        <div id="fd-current-user">
+          <div class="fd-user-status">
+            <div>
+              <strong>Cargando usuario...</strong>
+              <span>Consultando sesion actual</span>
+            </div>
+          </div>
+        </div>
+        <div id="fd-role-actions"></div>
+        <div class="separator"></div>
         <div class="panel-subtitle dls-txt-h4">Contacto sin Reuniones</div>
         <div class="copyable-item" data-copy="465498765346">
           <span style="font-weight:100;" class="dls-txt-h5">465498765346</span>
@@ -1065,6 +1251,7 @@
         panelOrForm.style.right = isOpen ? '0' : `-${panelOrForm.offsetWidth}px`;
         
         if (isOpen) {
+          refreshCurrentUser(panelOrForm);
           const phone = getRespondPagePhone();
           if (!phone) {
             console.warn('Extension FD: no se encontró un número tras "para:" en un div con clases dls-whitespace-nowrap dls-truncate');

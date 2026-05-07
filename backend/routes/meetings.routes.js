@@ -8,6 +8,8 @@ const {
   createMeeting,
   updateMeeting
 } = require('../services/airtable.service');
+const { listSellerBlocks } = require('../services/seller-blocks.service');
+const { listSellers } = require('../services/sellers.service');
 const { getActiveUsers } = require('../services/users.service');
 const {
   TIMEZONE,
@@ -321,12 +323,87 @@ async function getSellerNameFromUser(user) {
   return normalizeSellerName(String(user?.email || '').split('@')[0]);
 }
 
-async function findAvailableUser(users, startDateTime, endDateTime) {
-  for (const user of users) {
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function isSellerOperational(seller) {
+  return seller?.activa === true &&
+    seller?.puede_recibir_reuniones === true &&
+    seller?.puede_crear_meets === true;
+}
+
+function isSellerBlocked(sellerRecordId, date, startDateTime, endDateTime, blocks = []) {
+  return blocks.some((block) => {
+    if (!block.activo || block.fecha !== date) {
+      return false;
+    }
+
+    if (!Array.isArray(block.usuario) || !block.usuario.includes(sellerRecordId)) {
+      return false;
+    }
+
+    if (block.todo_el_dia || !block.hora_inicio || !block.hora_fin) {
+      return true;
+    }
+
+    const blockStart = buildLocalDateTime(date, block.hora_inicio);
+    const blockEnd = buildLocalDateTime(date, block.hora_fin);
+    return isSlotBusy(startDateTime, endDateTime, [{ start: blockStart, end: blockEnd }]);
+  });
+}
+
+function getSellerBlockBusyTimes(sellerRecordId, date, blocks = []) {
+  return blocks
+    .filter((block) => block.activo && block.fecha === date)
+    .filter((block) => Array.isArray(block.usuario) && block.usuario.includes(sellerRecordId))
+    .map((block) => {
+      if (block.todo_el_dia || !block.hora_inicio || !block.hora_fin) {
+        return {
+          start: buildLocalDateTime(date, '00:00'),
+          end: buildLocalDateTime(date, '23:59')
+        };
+      }
+
+      return {
+        start: buildLocalDateTime(date, block.hora_inicio),
+        end: buildLocalDateTime(date, block.hora_fin)
+      };
+    });
+}
+
+async function getOperationalSellerEntries(authUsers) {
+  const sellers = await listSellers();
+  const sellersByEmail = new Map(
+    sellers
+      .filter((seller) => seller.correo)
+      .map((seller) => [normalizeEmail(seller.correo), seller])
+  );
+
+  return authUsers
+    .map((user) => {
+      const seller = sellersByEmail.get(normalizeEmail(user.email));
+      return seller ? { user, seller } : null;
+    })
+    .filter(Boolean)
+    .filter(({ seller }) => isSellerOperational(seller));
+}
+
+async function getEligibleSellerEntries(authUsers, { date, startDateTime, endDateTime }) {
+  const blocks = await listSellerBlocks();
+  const entries = await getOperationalSellerEntries(authUsers);
+
+  return entries
+    .filter(({ seller }) => !isSellerBlocked(seller.recordId, date, startDateTime, endDateTime, blocks));
+}
+
+async function findAvailableUser(entries, startDateTime, endDateTime) {
+  for (const entry of entries) {
+    const user = entry.user;
     try {
       const busyTimes = await getBusyTimes(user, startDateTime, endDateTime);
       if (!isSlotBusy(startDateTime, endDateTime, busyTimes)) {
-        return user;
+        return entry;
       }
     } catch (error) {
       console.error(`Error verificando disponibilidad de ${user.email}:`, error.response?.data || error.message);
@@ -719,16 +796,17 @@ router.post('/book', async (req, res) => {
 
   try {
     const activeUsers = await getActiveUsers();
-    const activeSellers = activeUsers.filter((user) => String(user.rol || '').toLowerCase() === 'vendedora');
-    if (!activeSellers.length) {
+    const eligibleSellers = await getEligibleSellerEntries(activeUsers, { date, startDateTime, endDateTime });
+    if (!eligibleSellers.length) {
       return res.status(409).json({ error: 'No active sellers available' });
     }
 
-    const assignedUser = await findAvailableUser(activeSellers, startDateTime, endDateTime);
-    if (!assignedUser) {
+    const assignedEntry = await findAvailableUser(eligibleSellers, startDateTime, endDateTime);
+    if (!assignedEntry) {
       return res.status(409).json({ error: 'No users available for requested slot' });
     }
 
+    const assignedUser = assignedEntry.user;
     const calendarEvent = await createMeetEvent(assignedUser, {
       summary: `Reunion comercial - ${nombre}`,
       description: [
@@ -747,7 +825,7 @@ router.post('/book', async (req, res) => {
     )?.uri || '';
 
     const client = await findOrCreateClient({ telefono, nombre, email });
-    const sellerName = await getSellerNameFromUser(assignedUser);
+    const sellerName = normalizeSellerName(assignedEntry.seller.nombre) || await getSellerNameFromUser(assignedUser);
     const meetingFields = {
       Id: `${telefono}-${date}-${time}`,
       Nombre: nombre,
@@ -825,13 +903,29 @@ router.get('/availability', async (req, res) => {
 
     const timeMin = buildLocalDateTime(date, '00:00');
     const timeMax = buildLocalDateTime(date, '23:59');
+    const operationalSellerEntries = await getOperationalSellerEntries(loggedUsers);
+    const sellerBlocks = await listSellerBlocks();
     const busyByUser = {};
 
-    for (const user of loggedUsers) {
+    if (operationalSellerEntries.length === 0) {
+      if (wantsHtml(req)) {
+        return res.send(renderAvailabilityPage({
+          date,
+          duration: parsedDuration,
+          error: 'No hay vendedoras activas y habilitadas para recibir reuniones.'
+        }));
+      }
+      return res.json({ error: 'No active sellers enabled' });
+    }
+
+    for (const entry of operationalSellerEntries) {
+      const user = entry.user;
+      const seller = entry.seller;
       try {
-        console.log('Procesando usuario:', user.email);
+        console.log('Procesando usuario:', user.email, '->', seller.nombre);
         const busyTimes = await getBusyTimes(user, timeMin, timeMax);
-        busyByUser[user.email] = busyTimes;
+        const blockBusyTimes = getSellerBlockBusyTimes(seller.recordId, date, sellerBlocks);
+        busyByUser[seller.nombre || user.email] = [...busyTimes, ...blockBusyTimes];
       } catch (userError) {
         console.error(`Error procesando usuario ${user.email}:`, userError.response?.data || userError.message);
       }

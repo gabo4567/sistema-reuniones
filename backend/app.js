@@ -4,8 +4,11 @@ const express = require('express');
 const cors = require('cors');
 const session = require('express-session');
 
+const adminRouter = require('./routes/admin.routes');
 const authRouter = require('./routes/auth.routes');
 const meetingsRouter = require('./routes/meetings.routes');
+const sellerBlocksRouter = require('./routes/seller-blocks.routes');
+const sellersRouter = require('./routes/sellers.routes');
 const { getActiveUsers, resetUsers } = require('./services/users.service');
 
 const app = express();
@@ -319,7 +322,13 @@ function renderDebugResetConfirmPage() {
   `;
 }
 
-app.use(cors());
+app.use(cors({
+  origin: [
+    'https://app.respond.io',
+    'https://meet.google.com'
+  ],
+  credentials: true
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(session({
@@ -504,6 +513,7 @@ app.get('/', (_req, res) => {
             <section class="actions" aria-label="Accesos rapidos">
               <a class="primary" href="/health">Ver health JSON</a>
               <a href="/auth/google">Login con Google</a>
+              <a href="/admin/sellers">Admin vendedoras</a>
               <a href="/api/availability?date=2026-05-06&duration=30">Ejemplo disponibilidad</a>
             </section>
           </main>
@@ -561,8 +571,11 @@ app.post('/debug/reset-users', async (req, res) => {
   }
 });
 
+app.use('/admin', adminRouter);
 app.use('/auth', authRouter);
 app.use('/api', meetingsRouter);
+app.use('/api', sellerBlocksRouter);
+app.use('/api', sellersRouter);
 
 app.listen(PORT, () => {
   console.log(`Backend listening on port ${PORT}`);
