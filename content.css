@@ -1301,7 +1301,7 @@
 .fd-equipo-back-btn {
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
   padding: 6px 11px;
   border-radius: var(--fd-radius-sm);
   border: 1px solid var(--fd-border-default);

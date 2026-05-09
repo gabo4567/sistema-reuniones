@@ -888,7 +888,6 @@
     view.innerHTML = `
       <div class="fd-equipo-topbar">
         <button type="button" id="fd-equipo-back" class="fd-equipo-back-btn">
-          <i data-component="FontIcon" class="icon icon-chevron-left dls-size-icon-lg dls-text-icon-lg"></i>
           Volver
         </button>
         <span class="fd-equipo-title">Gestion del equipo</span>
