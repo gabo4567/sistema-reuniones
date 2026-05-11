@@ -14,6 +14,14 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
 }
 
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function normalizeValue(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
 function validateCreateSeller(body = {}) {
   if (!body.id && !body.Id) {
     return 'id is required';
@@ -29,6 +37,15 @@ function validateCreateSeller(body = {}) {
   }
 
   if (!isValidEmail(email)) {
+    return 'correo must be valid';
+  }
+
+  return '';
+}
+
+function validateUpdateSeller(body = {}) {
+  const email = body.correo || body.Correo;
+  if (email && !isValidEmail(email)) {
     return 'correo must be valid';
   }
 
@@ -129,6 +146,38 @@ router.post('/sellers', async (req, res) => {
   }
 
   try {
+    const email = req.body.correo || req.body.Correo;
+    const sellerId = req.body.id || req.body.Id;
+    const sellers = await listSellers();
+    const existingSeller = sellers.find((seller) => normalizeEmail(seller.correo) === normalizeEmail(email));
+    if (existingSeller) {
+      return res.status(409).json({
+        error: 'Seller email already exists',
+        message: 'Ya existe un usuario con ese correo.',
+        seller: {
+          recordId: existingSeller.recordId,
+          nombre: existingSeller.nombre,
+          correo: existingSeller.correo,
+          rol: existingSeller.rol
+        }
+      });
+    }
+
+    const existingSellerId = sellers.find((seller) => normalizeValue(seller.id) === normalizeValue(sellerId));
+    if (existingSellerId) {
+      return res.status(409).json({
+        error: 'Seller id already exists',
+        message: 'Ya existe un usuario con ese ID.',
+        seller: {
+          recordId: existingSellerId.recordId,
+          id: existingSellerId.id,
+          nombre: existingSellerId.nombre,
+          correo: existingSellerId.correo,
+          rol: existingSellerId.rol
+        }
+      });
+    }
+
     const seller = await createSeller(req.body);
     return res.status(201).json(seller);
   } catch (error) {
@@ -144,7 +193,48 @@ router.patch('/sellers/:id', async (req, res) => {
     return res.status(400).json({ error: 'No editable fields provided' });
   }
 
+  const validationError = validateUpdateSeller(req.body);
+  if (validationError) {
+    return res.status(400).json({ error: validationError });
+  }
+
   try {
+    const sellers = await listSellers();
+    const currentSeller = sellers.find((seller) => seller.recordId === req.params.id);
+    if (!currentSeller) {
+      return res.status(404).json({ error: 'Seller not found' });
+    }
+
+    const nextEmail = req.body.correo || req.body.Correo;
+    if (nextEmail) {
+      const existingSeller = sellers.find((seller) =>
+        seller.recordId !== req.params.id &&
+        normalizeEmail(seller.correo) === normalizeEmail(nextEmail)
+      );
+
+      if (existingSeller) {
+        return res.status(409).json({
+          error: 'Seller email already exists',
+          message: 'Ya existe otro usuario con ese correo.'
+        });
+      }
+    }
+
+    const nextSellerId = req.body.id || req.body.Id;
+    if (nextSellerId) {
+      const existingSellerId = sellers.find((seller) =>
+        seller.recordId !== req.params.id &&
+        normalizeValue(seller.id) === normalizeValue(nextSellerId)
+      );
+
+      if (existingSellerId) {
+        return res.status(409).json({
+          error: 'Seller id already exists',
+          message: 'Ya existe otro usuario con ese ID.'
+        });
+      }
+    }
+
     const seller = await updateSeller(req.params.id, req.body);
     return res.json(seller);
   } catch (error) {

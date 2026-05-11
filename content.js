@@ -1364,7 +1364,13 @@
         await loadSellersIntoView(view);
       } catch (err) {
         console.error('Extension FD: error al agregar vendedora', err);
-        setAddSellerMessage(msgEl, 'No se pudo agregar la vendedora.', true);
+        const errorMessage = String(err?.message || '');
+        const isDuplicateEmail = errorMessage.includes('409') || errorMessage.includes('Seller email already exists') || errorMessage.includes('Ya existe un usuario');
+        setAddSellerMessage(
+          msgEl,
+          isDuplicateEmail ? 'Ya existe un usuario con ese correo.' : 'No se pudo agregar la vendedora.',
+          true
+        );
       } finally {
         addBtn.disabled = false;
         addBtn.textContent = 'Agregar vendedora';
