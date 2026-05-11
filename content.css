@@ -557,7 +557,6 @@
   }
 
   #custom-side-panel .fd-user-status,
-  #custom-side-panel .fd-card,
   #custom-side-panel .fd-stat-card,
   #custom-side-panel .fd-note-card,
   #custom-side-panel .fd-role-card,
@@ -569,6 +568,52 @@
     background-color: #FFFFFF;
     border-color: var(--fd-border-subtle);
     color: var(--fd-text-primary);
+  }
+
+  #custom-side-panel .meet-card .fd-card {
+    background-color: #FFFFFF;
+    border-color: rgba(17,24,39,0.22);
+    box-shadow: 0 1px 2px rgba(17,24,39,0.08), 0 0 0 1px rgba(17,24,39,0.04);
+  }
+
+  #custom-side-panel .meet-card .fd-card:hover {
+    border-color: rgba(17,24,39,0.34);
+    box-shadow: 0 2px 6px rgba(17,24,39,0.12), 0 0 0 1px rgba(17,24,39,0.06);
+  }
+
+  #custom-side-panel .meet-card .fd-card.is-open {
+    border-color: var(--fd-accent-border);
+    box-shadow: 0 0 0 1px var(--fd-accent-border), 0 3px 10px rgba(17,24,39,0.14);
+  }
+
+  #custom-side-panel .copyable-item,
+  #custom-side-panel .fd-stat-card,
+  #custom-side-panel .fd-note-card {
+    border-color: rgba(17,24,39,0.20);
+    box-shadow: 0 1px 2px rgba(17,24,39,0.06);
+  }
+
+  #custom-side-panel .copyable-item:hover,
+  #custom-side-panel .fd-stat-card:hover,
+  #custom-side-panel .fd-note-card:hover {
+    border-color: rgba(17,24,39,0.32);
+    box-shadow: 0 2px 5px rgba(17,24,39,0.09);
+  }
+
+  #custom-side-panel #availability-results .fd-empty-state,
+  #custom-side-panel #availability-results .fd-msg {
+    border-color: rgba(17,24,39,0.22);
+    background-color: #FFFFFF;
+    box-shadow: 0 1px 2px rgba(17,24,39,0.06);
+    color: var(--fd-text-secondary);
+  }
+
+  #custom-side-panel #booking-create-btn:disabled {
+    opacity: 1;
+    background-color: #F3F4F6;
+    color: #6B7280 !important;
+    border-color: rgba(17,24,39,0.22);
+    box-shadow: 0 1px 2px rgba(17,24,39,0.06);
   }
 
   #custom-side-panel .fd-tabs,
@@ -1330,10 +1375,11 @@
 
 .fd-card {
   border-radius: var(--fd-radius-md);
-  border: 1px solid var(--fd-border-subtle);
+  border: 1px solid var(--fd-border-default);
   background: var(--fd-bg-elevated);
   overflow: hidden;
   transition: border-color var(--fd-transition), box-shadow var(--fd-transition);
+  box-shadow: var(--fd-shadow-card);
 }
 
 .fd-card.is-open {
@@ -1389,7 +1435,7 @@
 }
 
 .fd-card-header.is-open {
-  background: var(--fd-accent-bg);
+  background: transparent;
 }
 
 .fd-card-row {
