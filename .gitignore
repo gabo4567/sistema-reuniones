@@ -5,6 +5,7 @@ dist/
 build/
 coverage/
 .vscode/
+.claude/
 .DS_Store
 backend/.env
 backend/data/*.json
