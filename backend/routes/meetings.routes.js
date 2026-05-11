@@ -10,6 +10,7 @@ const {
 } = require('../services/airtable.service');
 const { listSellerBlocks } = require('../services/seller-blocks.service');
 const { listSellers } = require('../services/sellers.service');
+const { listWorkHours, toMinutes } = require('../services/work-hours.service');
 const { getActiveUsers } = require('../services/users.service');
 const {
   TIMEZONE,
@@ -373,6 +374,84 @@ function getSellerBlockBusyTimes(sellerRecordId, date, blocks = []) {
     });
 }
 
+function getWorkHourRangesForSeller(sellerRecordId, workHoursBySeller = {}) {
+  const entry = workHoursBySeller[sellerRecordId];
+  if (!entry?.enabled) {
+    return [];
+  }
+
+  return Array.isArray(entry.ranges) ? entry.ranges : [];
+}
+
+function getDayKeyForDate(date) {
+  const dayIndex = new Date(buildLocalDateTime(date, '00:00')).getUTCDay();
+  return ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][dayIndex];
+}
+
+function getWorkHourRangesForDate(sellerRecordId, date, workHoursBySeller = {}) {
+  const entry = workHoursBySeller[sellerRecordId];
+  if (!entry?.enabled) return [];
+
+  const dayKey = getDayKeyForDate(date);
+  const dayConfig = entry.weekly?.[dayKey];
+
+  if (dayConfig) {
+    return dayConfig.enabled === true && Array.isArray(dayConfig.ranges) ? dayConfig.ranges : [];
+  }
+
+  return getWorkHourRangesForSeller(sellerRecordId, workHoursBySeller);
+}
+
+function isWithinCustomWorkHours(sellerRecordId, date, startDateTime, endDateTime, workHoursBySeller = {}) {
+  const entry = workHoursBySeller[sellerRecordId];
+  if (!entry?.enabled) return true;
+
+  const ranges = getWorkHourRangesForDate(sellerRecordId, date, workHoursBySeller);
+  if (!ranges.length) return false;
+
+  const startMinutes = toMinutes(String(startDateTime).slice(11, 16));
+  const endMinutes = toMinutes(String(endDateTime).slice(11, 16));
+
+  return ranges.some((range) => {
+    return startMinutes >= toMinutes(range.start) && endMinutes <= toMinutes(range.end);
+  });
+}
+
+function getCustomWorkHourBusyTimes(sellerRecordId, date, workHoursBySeller = {}) {
+  const entry = workHoursBySeller[sellerRecordId];
+  if (!entry?.enabled) return [];
+
+  const ranges = getWorkHourRangesForDate(sellerRecordId, date, workHoursBySeller);
+  if (!ranges.length) {
+    return [{
+      start: buildLocalDateTime(date, '00:00'),
+      end: buildLocalDateTime(date, '23:59')
+    }];
+  }
+
+  const busyTimes = [];
+  let cursor = '00:00';
+
+  ranges.forEach((range) => {
+    if (toMinutes(cursor) < toMinutes(range.start)) {
+      busyTimes.push({
+        start: buildLocalDateTime(date, cursor),
+        end: buildLocalDateTime(date, range.start)
+      });
+    }
+    cursor = range.end;
+  });
+
+  if (toMinutes(cursor) < toMinutes('23:59')) {
+    busyTimes.push({
+      start: buildLocalDateTime(date, cursor),
+      end: buildLocalDateTime(date, '23:59')
+    });
+  }
+
+  return busyTimes;
+}
+
 async function getOperationalSellerEntries(authUsers) {
   const sellers = await listSellers();
   const sellersByEmail = new Map(
@@ -392,10 +471,12 @@ async function getOperationalSellerEntries(authUsers) {
 
 async function getEligibleSellerEntries(authUsers, { date, startDateTime, endDateTime }) {
   const blocks = await listSellerBlocks();
+  const workHoursBySeller = await listWorkHours();
   const entries = await getOperationalSellerEntries(authUsers);
 
   return entries
-    .filter(({ seller }) => !isSellerBlocked(seller.recordId, date, startDateTime, endDateTime, blocks));
+    .filter(({ seller }) => !isSellerBlocked(seller.recordId, date, startDateTime, endDateTime, blocks))
+    .filter(({ seller }) => isWithinCustomWorkHours(seller.recordId, date, startDateTime, endDateTime, workHoursBySeller));
 }
 
 async function findAvailableUser(entries, startDateTime, endDateTime) {
@@ -906,6 +987,7 @@ router.get('/availability', async (req, res) => {
     const timeMax = buildLocalDateTime(date, '23:59');
     const operationalSellerEntries = await getOperationalSellerEntries(loggedUsers);
     const sellerBlocks = await listSellerBlocks();
+    const workHoursBySeller = await listWorkHours();
     const busyByUser = {};
 
     if (operationalSellerEntries.length === 0) {
@@ -926,7 +1008,8 @@ router.get('/availability', async (req, res) => {
         console.log('Procesando usuario:', user.email, '->', seller.nombre);
         const busyTimes = await getBusyTimes(user, timeMin, timeMax);
         const blockBusyTimes = getSellerBlockBusyTimes(seller.recordId, date, sellerBlocks);
-        busyByUser[seller.nombre || user.email] = [...busyTimes, ...blockBusyTimes];
+        const workHourBusyTimes = getCustomWorkHourBusyTimes(seller.recordId, date, workHoursBySeller);
+        busyByUser[seller.nombre || user.email] = [...busyTimes, ...blockBusyTimes, ...workHourBusyTimes];
       } catch (userError) {
         console.error(`Error procesando usuario ${user.email}:`, userError.response?.data || userError.message);
       }

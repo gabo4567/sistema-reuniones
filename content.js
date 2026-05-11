@@ -28,6 +28,23 @@
     `;
   }
 
+  function getMeetingScheduleMeta(fields = {}) {
+    const rawDate = fields['Fecha'];
+    const date = rawDate ? new Date(rawDate) : null;
+    const hasValidDate = date && !Number.isNaN(date.getTime());
+    const durationValue = fields['Duracion'] || fields['Duración'] || fields['Duracion minutos'] || '';
+
+    return {
+      date: hasValidDate
+        ? date.toLocaleDateString('es-ES', { month: 'short', day: 'numeric', year: 'numeric' })
+        : 'N/A',
+      time: hasValidDate
+        ? `${date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} hs`
+        : '',
+      duration: durationValue ? `${durationValue} min` : ''
+    };
+  }
+
   function getMeetCardsHTML(meetings = []) {
     if (!meetings || meetings.length === 0) {
       return '<div class="fd-empty-state">No hay reuniones registradas</div>';
@@ -40,7 +57,7 @@
       const recordId = record.id || '';
       const calendarEventId = fields['Google Calendar Event ID'] || '';
       const vendedora = fields['Vendedora'] || 'N/A';
-      const date = fields['Fecha'] ? new Date(fields['Fecha']).toLocaleDateString('es-ES', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A';
+      const schedule = getMeetingScheduleMeta(fields);
       const status = fields['ESTADO'] || '';
       const type = fields['Tipo de Reunion'] || 'Meet';
       const phase = fields['Fase del Momento'] || 'N/A';
@@ -57,8 +74,8 @@
           <div class="fd-card">
             <div class="fd-card-header meet-card-header">
               <div class="fd-card-row">
-                <span class="fd-card-type">${escapeHtml(type)}</span>
-                <span class="fd-badge fd-badge--gray">${escapeHtml(date)}</span>
+                <span class="fd-card-type">${escapeHtml(schedule.time ? `${schedule.time} - ${type}` : type)}</span>
+                <span class="fd-badge fd-badge--gray">${escapeHtml(schedule.date)}</span>
               </div>
               <div class="fd-card-divider"></div>
               <div class="fd-card-row">
@@ -72,6 +89,12 @@
                       <span class="fd-card-detail-label">Fase</span>
                       <span class="fd-card-detail-value">${escapeHtml(phase)}</span>
                     </div>
+                    ${schedule.duration ? `
+                    <div class="fd-card-detail-row">
+                      <span class="fd-card-detail-label">Duracion</span>
+                      <span class="fd-card-detail-value">${escapeHtml(schedule.duration)}</span>
+                    </div>
+                    ` : ''}
                     <div class="fd-card-detail-row">
                       <span class="fd-card-detail-label">Registro</span>
                       <span class="fd-card-detail-value">${registered}</span>
@@ -101,14 +124,13 @@
       const recordId = record.id || '';
       const calendarEventId = fields['Google Calendar Event ID'] || '';
       const vendedora = fields['Vendedora'] || 'N/A';
-      const date = fields['Fecha'] ? new Date(fields['Fecha']).toLocaleDateString('es-ES', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A';
+      const schedule = getMeetingScheduleMeta(fields);
       const status = fields['ESTADO'] || '';
       const type = fields['Tipo de Reunion'] || 'Meet';
       const phase = fields['Fase del Momento'] || 'N/A';
       const meetLink = fields['Link de meet'] || '';
       const registered = fields['Logramos Registro?'] === true ? '✅' : '❌';
       const notes = fields['Notas'] || '';
-      const duration = fields['Duracion'] ? `${fields['Duracion']} min` : 'N/A';
       const statusClass = getStatusBadgeClass(status);
 
       return `
@@ -117,10 +139,10 @@
              data-calendar-event-id="${escapeHtml(calendarEventId)}"
              data-vendedora="${escapeHtml(vendedora)}">
           <div class="fd-card fd-card--gerente">
-            <div class="fd-card-header">
+            <div class="fd-card-header meet-card-header">
               <div class="fd-card-row">
-                <span class="fd-card-type">${escapeHtml(type)}</span>
-                <span class="fd-badge fd-badge--gray">${escapeHtml(date)}</span>
+                <span class="fd-card-type">${escapeHtml(schedule.time ? `${schedule.time} - ${type}` : type)}</span>
+                <span class="fd-badge fd-badge--gray">${escapeHtml(schedule.date)}</span>
               </div>
               <div class="fd-card-divider"></div>
               <div class="fd-card-row">
@@ -128,7 +150,7 @@
                 <span class="${statusClass}">${escapeHtml(status || '–')}</span>
               </div>
             </div>
-            <div class="fd-card-body">
+            <div class="fd-card-body meet-card-extra-info" style="display:none;">
               <div class="fd-card-details">
                 <div class="fd-card-detail-row">
                   <span class="fd-card-detail-label">Fase</span>
@@ -136,7 +158,7 @@
                 </div>
                 <div class="fd-card-detail-row">
                   <span class="fd-card-detail-label">Duracion</span>
-                  <span class="fd-card-detail-value">${escapeHtml(duration)}</span>
+                  <span class="fd-card-detail-value">${escapeHtml(schedule.duration || 'N/A')}</span>
                 </div>
                 <div class="fd-card-detail-row">
                   <span class="fd-card-detail-label">Registro</span>
@@ -160,7 +182,8 @@
       if (header) {
         if (e.target.closest('a') || e.target.tagName === 'A') return;
         if (!e.target.closest('.reschedule-btn') && !e.target.closest('.reschedule-form')) {
-          const extraInfo = header.querySelector('.meet-card-extra-info');
+          const card = header.closest('.meet-card');
+          const extraInfo = card?.querySelector('.meet-card-extra-info');
           if (extraInfo) {
             const isHidden = extraInfo.style.display === 'none';
             extraInfo.style.display = isHidden ? 'block' : 'none';
@@ -530,7 +553,37 @@
     });
   }
 
-  async function createSellerBlock({ usuarioRecordId, fecha, motivo }) {
+  async function updateSellerAvailability(recordId, puedeRecibirReuniones) {
+    return fetchJson(`${API_BASE_URL}/sellers/${encodeURIComponent(recordId)}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        puede_recibir_reuniones: Boolean(puedeRecibirReuniones)
+      })
+    });
+  }
+
+  async function fetchWorkHours(recordId) {
+    return fetchJson(`${API_BASE_URL}/work-hours/${encodeURIComponent(recordId)}`);
+  }
+
+  async function saveWorkHours(recordId, { enabled, ranges, weekly }) {
+    return fetchJson(`${API_BASE_URL}/work-hours/${encodeURIComponent(recordId)}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        enabled: Boolean(enabled),
+        ranges,
+        weekly
+      })
+    });
+  }
+
+  async function createSellerBlock({ usuarioRecordId, fecha, todoElDia = true, horaInicio = '', horaFin = '', motivo }) {
     return fetchJson(`${API_BASE_URL}/seller-blocks`, {
       method: 'POST',
       headers: {
@@ -540,7 +593,9 @@
         id: `bloq-${usuarioRecordId}-${fecha}-${Date.now()}`,
         usuarioRecordId,
         fecha,
-        todo_el_dia: true,
+        todo_el_dia: Boolean(todoElDia),
+        hora_inicio: todoElDia ? '' : horaInicio,
+        hora_fin: todoElDia ? '' : horaFin,
         motivo: motivo || 'Bloqueo creado desde la extension',
         activo: true
       })
@@ -609,6 +664,78 @@
     return name.slice(0, 2).toUpperCase();
   }
 
+  function normalizeUserRole(role) {
+    return String(role || '').trim().toLowerCase();
+  }
+
+  function isManagerRole(role) {
+    return normalizeUserRole(role) === 'gerente';
+  }
+
+  function getPanelRole(panel) {
+    return panel?.dataset.currentUserRole || '';
+  }
+
+  function activatePanelTab(panel, tabName) {
+    if (!panel) return;
+
+    const canSeeTeam = isManagerRole(getPanelRole(panel));
+    const nextTab = tabName === 'team' && !canSeeTeam ? 'summary' : (tabName || 'summary');
+
+    panel.querySelectorAll('.fd-tab-btn').forEach(btn => {
+      const isActive = btn.dataset.tab === nextTab;
+      btn.classList.toggle('is-active', isActive);
+      btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+
+    panel.querySelectorAll('.fd-tab-panel').forEach(tabPanel => {
+      const isActive = tabPanel.dataset.tabPanel === nextTab;
+      tabPanel.classList.toggle('is-active', isActive);
+      tabPanel.hidden = !isActive;
+    });
+
+    if (nextTab === 'team') {
+      const teamPanel = panel.querySelector('#fd-team-panel');
+      if (teamPanel && teamPanel.dataset.loaded !== 'true') {
+        renderEquipoView(panel, teamPanel, { embedded: true });
+        teamPanel.dataset.loaded = 'true';
+      }
+    }
+  }
+
+  function configureRoleTabs(panel, role) {
+    if (!panel) return;
+
+    const canSeeTeam = isManagerRole(role);
+    const teamTab = panel.querySelector('[data-tab="team"]');
+    const teamPanel = panel.querySelector('#fd-team-panel');
+
+    if (teamTab) teamTab.hidden = !canSeeTeam;
+    if (teamPanel) {
+      teamPanel.hidden = true;
+      teamPanel.classList.remove('is-active');
+      if (!canSeeTeam) {
+        teamPanel.innerHTML = '';
+        teamPanel.dataset.loaded = 'false';
+      }
+    }
+
+    const activeTab = panel.querySelector('.fd-tab-btn.is-active')?.dataset.tab || 'summary';
+    activatePanelTab(panel, activeTab === 'team' && !canSeeTeam ? 'summary' : activeTab);
+  }
+
+  function bindPanelTabs(panel) {
+    const tabList = panel?.querySelector('#fd-panel-tabs');
+    if (!tabList || tabList.dataset.bound === 'true') return;
+    tabList.dataset.bound = 'true';
+
+    tabList.addEventListener('click', (event) => {
+      const btn = event.target.closest('.fd-tab-btn');
+      if (!btn || btn.hidden) return;
+      activatePanelTab(panel, btn.dataset.tab);
+    });
+  }
+
   function renderCurrentUser(panel, currentUser) {
     const container = panel?.querySelector('#fd-current-user');
     if (!container) return;
@@ -638,7 +765,7 @@
     const role = usuario?.rol || currentUser.auth?.rol || 'Sin rol';
     const initials = getInitials(displayName);
 
-    if (role === 'Gerente') {
+    if (isManagerRole(role)) {
       const puedeAtender = usuario?.puede_crear_meets === true;
       container.innerHTML = `
         <div class="fd-user-status">
@@ -698,6 +825,119 @@
     messageEl.className = `fd-role-action-message fd-msg${message ? (isError ? ' fd-msg--error' : '') : ''}`;
   }
 
+  function setReceiveMeetingsLabel(panel, recibe) {
+    const statusEl = panel?.querySelector('#fd-receive-status');
+    const toggle = panel?.querySelector('#fd-receive-toggle');
+    if (statusEl) {
+      statusEl.textContent = recibe ? 'Puede recibir reuniones' : 'No puede recibir reuniones';
+      statusEl.className = `fd-badge ${recibe ? 'fd-badge--green' : 'fd-badge--gray'}`;
+    }
+    if (toggle) {
+      toggle.textContent = recibe ? 'Pausar recepcion' : 'Activar recepcion';
+      toggle.dataset.receives = recibe ? 'true' : 'false';
+    }
+  }
+
+  const WORK_HOUR_DAYS = [
+    ['monday', 'Lunes'],
+    ['tuesday', 'Martes'],
+    ['wednesday', 'Miercoles'],
+    ['thursday', 'Jueves'],
+    ['friday', 'Viernes'],
+    ['saturday', 'Sabado'],
+    ['sunday', 'Domingo']
+  ];
+
+  function getDefaultWorkHourRanges(day = 'monday') {
+    if (day === 'saturday') return [{ start: '08:00', end: '12:00' }];
+    if (day === 'sunday') return [];
+    return [
+      { start: '09:00', end: '12:00' },
+      { start: '14:00', end: '18:00' }
+    ];
+  }
+
+  function getDefaultWeeklyWorkHours() {
+    return Object.fromEntries(WORK_HOUR_DAYS.map(([day]) => [
+      day,
+      {
+        enabled: !['saturday', 'sunday'].includes(day),
+        ranges: getDefaultWorkHourRanges(day)
+      }
+    ]));
+  }
+
+  function renderWorkHourRows(container, day, ranges = []) {
+    const list = container?.querySelector('#fd-work-hours-list');
+    if (!list) return;
+
+    const dayList = list.querySelector(`[data-work-day-ranges="${day}"]`);
+    if (!dayList) return;
+
+    const normalizedRanges = ranges.length ? ranges : getDefaultWorkHourRanges(day);
+    dayList.innerHTML = normalizedRanges.map((range, index) => `
+      <div class="fd-work-hour-row" data-day="${escapeHtml(day)}">
+        <input type="time" class="fd-work-hour-start" value="${escapeHtml(range.start || '09:00')}" aria-label="Inicio rango ${index + 1}" />
+        <input type="time" class="fd-work-hour-end" value="${escapeHtml(range.end || '12:00')}" aria-label="Fin rango ${index + 1}" />
+        <button type="button" class="fd-work-hour-remove" aria-label="Quitar rango">Quitar</button>
+      </div>
+    `).join('');
+  }
+
+  function renderWeeklyWorkHours(container, weekly = getDefaultWeeklyWorkHours()) {
+    const list = container?.querySelector('#fd-work-hours-list');
+    if (!list) return;
+
+    const defaults = getDefaultWeeklyWorkHours();
+    list.innerHTML = WORK_HOUR_DAYS.map(([day, label]) => {
+      const config = weekly?.[day] || defaults[day];
+      return `
+        <div class="fd-work-day" data-work-day="${escapeHtml(day)}">
+          <label class="fd-check-row fd-work-day-head">
+            <input type="checkbox" class="fd-work-day-enabled" ${config.enabled ? 'checked' : ''} />
+            <span>${escapeHtml(label)}</span>
+          </label>
+          <div class="fd-work-day-ranges" data-work-day-ranges="${escapeHtml(day)}"></div>
+          <button type="button" class="fd-work-hour-add-day fd-secondary-action" data-day="${escapeHtml(day)}">Agregar rango</button>
+        </div>
+      `;
+    }).join('');
+
+    WORK_HOUR_DAYS.forEach(([day]) => {
+      renderWorkHourRows(container, day, weekly?.[day]?.ranges || defaults[day].ranges);
+    });
+  }
+
+  function collectWorkHourRanges(container, day) {
+    return Array.from(container?.querySelectorAll(`[data-work-day-ranges="${day}"] .fd-work-hour-row`) || [])
+      .map((row) => ({
+        start: row.querySelector('.fd-work-hour-start')?.value || '',
+        end: row.querySelector('.fd-work-hour-end')?.value || ''
+      }))
+      .filter((range) => range.start && range.end);
+  }
+
+  function collectWeeklyWorkHours(container) {
+    return Object.fromEntries(WORK_HOUR_DAYS.map(([day]) => {
+      const dayEl = container?.querySelector(`[data-work-day="${day}"]`);
+      return [
+        day,
+        {
+          enabled: dayEl?.querySelector('.fd-work-day-enabled')?.checked === true,
+          ranges: collectWorkHourRanges(container, day)
+        }
+      ];
+    }));
+  }
+
+  function setWorkHoursMessage(panel, message, isError = false) {
+    const messageEl = panel?.querySelector('#fd-work-hours-message');
+    if (!messageEl) return;
+    messageEl.textContent = message || '';
+    messageEl.style.display = message ? 'block' : 'none';
+    messageEl.className = `fd-role-action-message fd-msg${message ? (isError ? ' fd-msg--error' : '') : ''}`;
+  }
+
   function renderRoleActions(panel, currentUser) {
     const container = panel?.querySelector('#fd-role-actions');
     if (!container) return;
@@ -705,26 +945,67 @@
     const usuario = currentUser?.usuario;
     const role = usuario?.rol || currentUser?.auth?.rol || '';
 
-    const puedeBloquear = role === 'Vendedora' || (role === 'Gerente' && usuario?.puede_crear_meets === true);
-    if (!currentUser?.authenticated || !puedeBloquear || !usuario?.recordId) {
+    const normalizedRole = normalizeUserRole(role);
+    const canManageOwnAvailability = normalizedRole === 'vendedora' || normalizedRole === 'gerente';
+    const canUseCustomWorkHours = normalizedRole === 'vendedora' || (normalizedRole === 'gerente' && usuario?.puede_crear_meets === true);
+    if (!currentUser?.authenticated || !canManageOwnAvailability || !usuario?.recordId) {
       container.innerHTML = '';
       return;
     }
 
+    const recibe = usuario?.puede_recibir_reuniones === true;
+
     container.innerHTML = `
       <div class="fd-role-card">
-        <div>
+        <div class="fd-role-card-head">
           <strong>Mi disponibilidad</strong>
-          <span>Bloquea un dia completo para no recibir reuniones.</span>
+          <span>Configura si puedes recibir reuniones y bloquea dias o rangos horarios.</span>
+          <span id="fd-receive-status" class="fd-badge ${recibe ? 'fd-badge--green' : 'fd-badge--gray'}">${recibe ? 'Puede recibir reuniones' : 'No puede recibir reuniones'}</span>
         </div>
+        <button type="button" id="fd-receive-toggle" class="fd-secondary-action" data-receives="${recibe ? 'true' : 'false'}">${recibe ? 'Pausar recepcion' : 'Activar recepcion'}</button>
+        <div class="fd-role-divider"></div>
+        ${canUseCustomWorkHours ? `
+        <div>
+          <strong>Horario laboral personalizado</strong>
+          <span>Configura la semana laboral por día. Puedes agregar mañana y tarde, o sábado al mediodía.</span>
+        </div>
+        <label class="fd-check-row">
+          <input id="fd-work-hours-enabled" type="checkbox" />
+          <span>Usar horario personalizado</span>
+        </label>
+        <div id="fd-work-hours-list" class="fd-work-hours-list"></div>
+        <button type="button" id="fd-work-hours-save">Guardar horario</button>
+        <div id="fd-work-hours-message" class="fd-role-action-message"></div>
+        <div class="fd-role-divider"></div>
+        ` : ''}
+        <div>
+          <strong>Bloqueos temporales</strong>
+          <span>Usa dia completo para hoy o vacaciones, o rango horario para cortes puntuales.</span>
+        </div>
+        <select id="fd-block-type">
+          <option value="day">Dia completo</option>
+          <option value="range">Rango horario</option>
+        </select>
         <input id="fd-block-date" type="date" />
+        <div id="fd-block-time-row" class="fd-time-row" hidden>
+          <input id="fd-block-start" type="time" value="14:00" />
+          <input id="fd-block-end" type="time" value="18:00" />
+        </div>
         <textarea id="fd-block-reason" rows="2" placeholder="Motivo opcional"></textarea>
-        <button type="button" id="fd-block-day-btn">Bloquear mi dia</button>
+        <button type="button" id="fd-block-day-btn">Crear bloqueo</button>
         <div id="fd-role-action-message" class="fd-role-action-message"></div>
       </div>
     `;
 
+    const receiveToggle = container.querySelector('#fd-receive-toggle');
+    const workHoursEnabled = container.querySelector('#fd-work-hours-enabled');
+    const workHoursSave = container.querySelector('#fd-work-hours-save');
+    const workHoursList = container.querySelector('#fd-work-hours-list');
+    const blockType = container.querySelector('#fd-block-type');
     const dateInput = container.querySelector('#fd-block-date');
+    const timeRow = container.querySelector('#fd-block-time-row');
+    const startInput = container.querySelector('#fd-block-start');
+    const endInput = container.querySelector('#fd-block-end');
     const reasonInput = container.querySelector('#fd-block-reason');
     const blockButton = container.querySelector('#fd-block-day-btn');
 
@@ -733,10 +1014,127 @@
       dateInput.min = getTodayDateValue();
     }
 
+    if (canUseCustomWorkHours && workHoursList) {
+      renderWeeklyWorkHours(container, getDefaultWeeklyWorkHours());
+      fetchWorkHours(usuario.recordId)
+        .then((workHours) => {
+          if (workHoursEnabled) workHoursEnabled.checked = workHours?.enabled === true;
+          renderWeeklyWorkHours(container, workHours?.weekly || getDefaultWeeklyWorkHours());
+        })
+        .catch((error) => {
+          console.error('Extension FD: error al cargar horario laboral', error);
+          setWorkHoursMessage(panel, 'No se pudo cargar el horario personalizado.', true);
+        });
+    }
+
+    workHoursList?.addEventListener('click', (event) => {
+      const removeButton = event.target.closest('.fd-work-hour-remove');
+      const addButton = event.target.closest('.fd-work-hour-add-day');
+
+      if (addButton) {
+        const day = addButton.dataset.day;
+        const ranges = collectWorkHourRanges(container, day);
+        if (ranges.length >= 4) {
+          setWorkHoursMessage(panel, 'Puedes cargar hasta 4 rangos por dia.', true);
+          return;
+        }
+        renderWorkHourRows(container, day, [...ranges, { start: day === 'saturday' ? '08:00' : '14:00', end: day === 'saturday' ? '12:00' : '18:00' }]);
+        setWorkHoursMessage(panel, '');
+        return;
+      }
+
+      if (!removeButton) return;
+      const day = removeButton.closest('.fd-work-hour-row')?.dataset.day;
+      const rows = workHoursList.querySelectorAll(`[data-work-day-ranges="${day}"] .fd-work-hour-row`);
+      if (rows.length <= 1) {
+        setWorkHoursMessage(panel, 'Debe quedar al menos un rango si el dia esta activo.', true);
+        return;
+      }
+      removeButton.closest('.fd-work-hour-row')?.remove();
+      setWorkHoursMessage(panel, '');
+    });
+
+    workHoursSave?.addEventListener('click', async () => {
+      const weekly = collectWeeklyWorkHours(container);
+      const enabled = workHoursEnabled?.checked === true;
+
+      const enabledDays = WORK_HOUR_DAYS.filter(([day]) => weekly[day].enabled);
+      if (enabled && !enabledDays.length) {
+        setWorkHoursMessage(panel, 'Activa al menos un dia para usar horario personalizado.', true);
+        return;
+      }
+
+      const invalidDay = enabledDays.find(([day]) => {
+        return !weekly[day].ranges.length || weekly[day].ranges.some((range) => range.start >= range.end);
+      });
+      if (invalidDay) {
+        setWorkHoursMessage(panel, 'Cada dia activo debe tener rangos validos.', true);
+        return;
+      }
+
+      workHoursSave.disabled = true;
+      workHoursSave.textContent = 'Guardando...';
+      setWorkHoursMessage(panel, 'Guardando horario personalizado...');
+
+      try {
+        const saved = await saveWorkHours(usuario.recordId, { enabled, weekly });
+        if (workHoursEnabled) workHoursEnabled.checked = saved.enabled === true;
+        renderWeeklyWorkHours(container, saved.weekly || getDefaultWeeklyWorkHours());
+        setWorkHoursMessage(panel, saved.enabled ? 'Horario personalizado guardado.' : 'Horario personalizado desactivado.');
+      } catch (error) {
+        console.error('Extension FD: error al guardar horario laboral', error);
+        setWorkHoursMessage(panel, 'No se pudo guardar el horario personalizado.', true);
+      } finally {
+        workHoursSave.disabled = false;
+        workHoursSave.textContent = 'Guardar horario';
+      }
+    });
+
+    blockType?.addEventListener('change', () => {
+      const isRange = blockType.value === 'range';
+      if (timeRow) timeRow.hidden = !isRange;
+      if (startInput) startInput.disabled = !isRange;
+      if (endInput) endInput.disabled = !isRange;
+    });
+
+    receiveToggle?.addEventListener('click', async () => {
+      const nextValue = receiveToggle.dataset.receives !== 'true';
+      receiveToggle.disabled = true;
+      receiveToggle.textContent = 'Guardando...';
+      setRoleActionMessage(panel, nextValue ? 'Activando recepcion de reuniones...' : 'Pausando recepcion de reuniones...');
+
+      try {
+        await updateSellerAvailability(usuario.recordId, nextValue);
+        usuario.puede_recibir_reuniones = nextValue;
+        setReceiveMeetingsLabel(panel, nextValue);
+        renderCurrentUser(panel, currentUser);
+        setRoleActionMessage(panel, nextValue ? 'Ya puedes recibir reuniones.' : 'Recepcion de reuniones pausada.');
+      } catch (error) {
+        console.error('Extension FD: error al actualizar recepcion de reuniones', error);
+        setReceiveMeetingsLabel(panel, !nextValue);
+        setRoleActionMessage(panel, 'No se pudo actualizar la recepcion de reuniones.', true);
+      } finally {
+        receiveToggle.disabled = false;
+      }
+    });
+
     blockButton?.addEventListener('click', async () => {
       const fecha = dateInput?.value || '';
+      const isRange = blockType?.value === 'range';
+      const horaInicio = startInput?.value || '';
+      const horaFin = endInput?.value || '';
       if (!fecha) {
         setRoleActionMessage(panel, 'Selecciona una fecha para bloquear.', true);
+        return;
+      }
+
+      if (isRange && (!horaInicio || !horaFin)) {
+        setRoleActionMessage(panel, 'Completa hora de inicio y fin.', true);
+        return;
+      }
+
+      if (isRange && horaInicio >= horaFin) {
+        setRoleActionMessage(panel, 'La hora de fin debe ser posterior al inicio.', true);
         return;
       }
 
@@ -748,19 +1146,22 @@
         await createSellerBlock({
           usuarioRecordId: usuario.recordId,
           fecha,
+          todoElDia: !isRange,
+          horaInicio,
+          horaFin,
           motivo: reasonInput?.value || ''
         });
-        setRoleActionMessage(panel, 'Dia bloqueado correctamente.');
+        setRoleActionMessage(panel, isRange ? 'Rango horario bloqueado correctamente.' : 'Dia bloqueado correctamente.');
         if (reasonInput) reasonInput.value = '';
         panel.dataset.selectedBookingTime = '';
         setBookingButtonState(panel, false);
-        setAvailabilityMessage(panel, 'Dia bloqueado. Volve a consultar disponibilidad si necesitas revisar horarios.');
+        setAvailabilityMessage(panel, 'Bloqueo creado. Volve a consultar disponibilidad si necesitas revisar horarios.');
       } catch (error) {
-        console.error('Extension FD: error al bloquear dia', error);
+        console.error('Extension FD: error al crear bloqueo', error);
         setRoleActionMessage(panel, 'No se pudo crear el bloqueo.', true);
       } finally {
         blockButton.disabled = false;
-        blockButton.textContent = 'Bloquear mi dia';
+        blockButton.textContent = 'Crear bloqueo';
       }
     });
   }
@@ -768,6 +1169,11 @@
   function renderGerenteSection(panel) {
     const container = panel?.querySelector('#fd-gerente-section');
     if (!container) return;
+
+    if (!isManagerRole(getPanelRole(panel))) {
+      container.innerHTML = '';
+      return;
+    }
 
     container.innerHTML = `
       <button type="button" id="fd-equipo-btn">
@@ -780,6 +1186,8 @@
   }
 
   function openEquipoView(panel) {
+    if (!isManagerRole(getPanelRole(panel))) return;
+
     const main = panel?.querySelector('#fd-panel-main');
     const view = panel?.querySelector('#fd-equipo-view');
     if (!main || !view) return;
@@ -797,6 +1205,9 @@
   }
 
   async function loadSellersIntoView(view) {
+    const panel = view?.closest('#custom-side-panel');
+    if (!isManagerRole(getPanelRole(panel))) return;
+
     const listEl = view.querySelector('#fd-equipo-list');
     if (!listEl) return;
     listEl.innerHTML = '<div class="fd-empty-state">Cargando vendedoras...</div>';
@@ -811,7 +1222,6 @@
       listEl.innerHTML = sellers.map(seller => {
         const activa = seller.activa;
         const recibe = seller.puede_recibir_reuniones;
-        const meet = seller.puede_crear_meets;
         const rid = escapeHtml(seller.recordId || '');
         return `
           <div class="fd-seller-card">
@@ -819,15 +1229,13 @@
               <span class="fd-seller-name">${escapeHtml(seller.nombre || seller.correo)}</span>
               <div class="fd-badges">
                 <span class="fd-badge ${activa ? 'fd-badge--green' : 'fd-badge--gray'}">${activa ? 'Activa' : 'Inactiva'}</span>
-                <span class="fd-badge ${recibe ? 'fd-badge--blue' : 'fd-badge--gray'}">${recibe ? 'Recibe' : 'No recibe'}</span>
-                ${meet ? '<span class="fd-badge fd-badge--blue">Meet</span>' : ''}
+                <span class="fd-badge ${recibe ? 'fd-badge--blue' : 'fd-badge--gray'}">${recibe ? 'Recibe reuniones' : 'Reuniones pausadas'}</span>
               </div>
             </div>
             <div class="fd-seller-email">${escapeHtml(seller.correo || '')}</div>
             <div class="fd-seller-actions">
-              <button type="button" class="fd-seller-btn fd-seller-toggle" data-id="${rid}" data-action="toggle-active">${activa ? 'Desactivar' : 'Activar'}</button>
-              <button type="button" class="fd-seller-btn fd-seller-toggle" data-id="${rid}" data-action="toggle-receives">${recibe ? 'Sin reuniones' : 'Con reuniones'}</button>
-              <button type="button" class="fd-seller-btn fd-seller-toggle" data-id="${rid}" data-action="toggle-meets">${meet ? 'Sin Meet' : 'Con Meet'}</button>
+              <button type="button" class="fd-seller-btn fd-seller-toggle" data-id="${rid}" data-action="toggle-active">${activa ? 'Desactivar usuaria' : 'Activar usuaria'}</button>
+              <button type="button" class="fd-seller-btn fd-seller-toggle" data-id="${rid}" data-action="toggle-receives">${recibe ? 'Pausar reuniones' : 'Recibir reuniones'}</button>
             </div>
           </div>
         `;
@@ -850,10 +1258,8 @@
             let body;
             if (action === 'toggle-active') {
               body = { activa: !seller.activa, puede_recibir_reuniones: seller.activa ? false : seller.puede_recibir_reuniones };
-            } else if (action === 'toggle-receives') {
-              body = { puede_recibir_reuniones: !seller.puede_recibir_reuniones };
             } else {
-              body = { puede_crear_meets: !seller.puede_crear_meets };
+              body = { puede_recibir_reuniones: !seller.puede_recibir_reuniones };
             }
 
             await fetchJson(`${API_BASE_URL}/sellers/${id}`, {
@@ -884,10 +1290,17 @@
     msgEl.style.display = text ? 'block' : 'none';
   }
 
-  function renderEquipoView(panel, view) {
+  function renderEquipoView(panel, view, options = {}) {
+    if (!isManagerRole(getPanelRole(panel))) {
+      if (view) view.innerHTML = '';
+      return;
+    }
+
+    const isEmbedded = options.embedded === true;
+
     view.innerHTML = `
       <div class="fd-equipo-topbar">
-        <button type="button" id="fd-equipo-back" class="fd-equipo-back-btn">
+        <button type="button" id="fd-equipo-back" class="fd-equipo-back-btn" ${isEmbedded ? 'hidden' : ''}>
           Volver
         </button>
         <span class="fd-equipo-title">Gestion del equipo</span>
@@ -908,7 +1321,9 @@
       </div>
     `;
 
-    view.querySelector('#fd-equipo-back')?.addEventListener('click', () => closeEquipoView(panel));
+    if (!isEmbedded) {
+      view.querySelector('#fd-equipo-back')?.addEventListener('click', () => closeEquipoView(panel));
+    }
 
     loadSellersIntoView(view);
 
@@ -978,15 +1393,17 @@
       panel.dataset.currentUserRole = currentUser?.usuario?.rol || currentUser?.auth?.rol || '';
       panel.dataset.currentUserEmail = currentUser?.email || '';
       renderCurrentUser(panel, currentUser);
+      configureRoleTabs(panel, panel.dataset.currentUserRole);
 
       const gerenteSection = panel?.querySelector('#fd-gerente-section');
-      if (panel.dataset.currentUserRole === 'Gerente') {
-        renderGerenteSection(panel);
-      } else if (gerenteSection) {
+      if (gerenteSection) {
         gerenteSection.innerHTML = '';
       }
     } catch (error) {
       console.error('Extension FD: error al obtener usuario actual', error);
+      panel.dataset.currentUserRole = '';
+      panel.dataset.currentUserEmail = '';
+      configureRoleTabs(panel, '');
       if (container) {
         container.innerHTML = `
           <div class="fd-user-status fd-user-status--warning">
@@ -1180,13 +1597,39 @@
   function formatAirtableDate(dateStr) {
     if (!dateStr) return 'N/A';
     const date = new Date(dateStr);
-    return date.toLocaleString('es-ES', {
-      year: 'numeric',
-      month: '2-digit',
+    if (Number.isNaN(date.getTime())) return 'N/A';
+    return `${date.toLocaleDateString('es-ES', {
       day: '2-digit',
+      month: 'short'
+    })}, ${date.toLocaleTimeString('es-ES', {
       hour: '2-digit',
       minute: '2-digit'
-    }).replace(',', '');
+    })} hs`;
+  }
+
+  function formatDisplayStatus(status) {
+    const clean = String(status || '').trim();
+    if (!clean) return '–';
+    return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
+  }
+
+  function formatDisplayNote(note) {
+    return String(note || '')
+      .replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, '$3/$2/$1')
+      .replace(/\ba las (\d{2}:\d{2})\b/gi, 'a las $1 hs')
+      .replace(/\bDuracion\b/g, 'Duración')
+      .trim();
+  }
+
+  function buildLeadQuickSummary({ count, status, last, note }) {
+    if (!count) return 'Lead sin reuniones registradas todavia.';
+
+    const statusText = formatDisplayStatus(status);
+    const lastDate = last ? formatAirtableDate(last.fields['Fecha']) : '';
+    const hasReprogramNote = /reprogram/i.test(note || '');
+    const interaction = hasReprogramNote ? 'Ultima accion: reprogramacion.' : 'Ultima accion: reunion registrada.';
+
+    return `Lead ${statusText.toLowerCase()} con ${count} reunion${count === 1 ? '' : 'es'} registrada${count === 1 ? '' : 's'}. ${lastDate ? `Ultima reunion: ${lastDate}. ` : ''}${interaction}`;
   }
 
   function updatePanelWithData(fields, meetings = []) {
@@ -1213,7 +1656,7 @@
     }
 
     const role = panel?.dataset.currentUserRole || '';
-    const meetingsHTML = role === 'Gerente' ? getGerenteMeetCardsHTML(meetings) : getMeetCardsHTML(meetings);
+    const meetingsHTML = isManagerRole(role) ? getGerenteMeetCardsHTML(meetings) : getMeetCardsHTML(meetings);
     const panelMeetingsContainer = panel?.querySelector('.panel-section-summary > div');
     if (panelMeetingsContainer) {
       const count = meetings?.length || 0;
@@ -1232,11 +1675,20 @@
       const dateEl = panel.querySelector('#fd-stat-date');
       const statusEl = panel.querySelector('#fd-stat-status');
       const noteEl = panel.querySelector('#fd-stat-note');
+      const quickSummaryEl = panel.querySelector('#fd-lead-quick-summary');
 
-      if (countEl) countEl.textContent = String(meetings.length);
+      if (countEl) countEl.textContent = `${meetings.length} reunion${meetings.length === 1 ? '' : 'es'}`;
       if (dateEl) dateEl.textContent = last ? formatAirtableDate(last.fields['Fecha']) : '–';
       if (statusEl) statusEl.innerHTML = `<span class="${getStatusBadgeClass(status)}">${escapeHtml(status || '–')}</span>`;
       if (noteEl) noteEl.textContent = note || 'Sin notas';
+      if (statusEl) statusEl.innerHTML = `<span class="${getStatusBadgeClass(status)}">${escapeHtml(formatDisplayStatus(status))}</span>`;
+      if (noteEl) noteEl.textContent = note ? formatDisplayNote(note) : 'Sin notas';
+      if (quickSummaryEl) quickSummaryEl.textContent = buildLeadQuickSummary({
+        count: meetings.length,
+        status,
+        last,
+        note
+      });
     }
 
     if (!panel || !fields) return;
@@ -1324,19 +1776,15 @@
           <div class="dls-txt-h4">Reuniones</div>
         </div>
         <div class="separator"></div>
-        <div id="fd-current-user">
-          <div class="fd-user-status">
-            <div>
-              <strong>Cargando usuario...</strong>
-              <span>Consultando sesion actual</span>
-            </div>
-          </div>
-        </div>
         <div id="fd-panel-main">
-        <div id="fd-role-actions"></div>
-        <div id="fd-gerente-section"></div>
-        <div class="separator"></div>
+        <div id="fd-panel-tabs" class="fd-tabs" role="tablist" aria-label="Secciones del panel">
+          <button type="button" class="fd-tab-btn is-active" data-tab="summary" role="tab" aria-selected="true">Resumen</button>
+          <button type="button" class="fd-tab-btn" data-tab="team" role="tab" aria-selected="false" hidden>Equipo</button>
+          <button type="button" class="fd-tab-btn" data-tab="availability" role="tab" aria-selected="false">Mi disponibilidad</button>
+        </div>
+        <div class="fd-tab-panel is-active" data-tab-panel="summary">
         <div class="panel-subtitle">Contacto sin Reuniones</div>
+        <div class="fd-lead-quick-summary" id="fd-lead-quick-summary">Lead sin reuniones registradas todavia.</div>
         <div class="fd-contact-fields">
           <div class="copyable-item" id="fd-contact-phone" data-copy="465498765346">
             <span class="fd-contact-label">Tel.</span>
@@ -1351,8 +1799,8 @@
         </div>
         <div class="fd-stats-grid">
           <div class="fd-stat-card">
-            <div class="fd-stat-label">Reuniones</div>
-            <div class="fd-stat-value" id="fd-stat-count">–</div>
+            <div class="fd-stat-label">Historial</div>
+            <div class="fd-stat-value fd-stat-value--text" id="fd-stat-count">–</div>
           </div>
           <div class="fd-stat-card">
             <div class="fd-stat-label">Ultima reunion</div>
@@ -1364,12 +1812,12 @@
           </div>
         </div>
         <div class="fd-note-card">
-          <div class="fd-note-label">Notas</div>
+          <div class="fd-note-label">Ultima interaccion / notas</div>
           <div class="nota-valor" id="fd-stat-note">Sin notas</div>
         </div>
         <div class="separator"></div>
         <div class="availability-section">
-          <div class="fd-section-title">Disponibilidad</div>
+          <div class="fd-section-title">Agendar reunion</div>
           <div class="fd-form-stack">
             <input id="availability-date" type="date" />
             <select id="availability-duration">
@@ -1391,6 +1839,20 @@
             ${getMeetCardsHTML()}
           </div>
         </div>
+        </div>
+        <div class="fd-tab-panel" id="fd-team-panel" data-tab-panel="team" hidden></div>
+        <div class="fd-tab-panel" data-tab-panel="availability" hidden>
+          <div id="fd-current-user">
+            <div class="fd-user-status">
+              <div>
+                <strong>Cargando usuario...</strong>
+                <span>Consultando sesion actual</span>
+              </div>
+            </div>
+          </div>
+          <div id="fd-role-actions"></div>
+          <div id="fd-gerente-section"></div>
+        </div>
       </div>
       <div id="fd-equipo-view"></div>
     `;
@@ -1399,6 +1861,7 @@
     // Add listeners for the meet cards
     const sectionSummary = panelOrForm.querySelector('.panel-section-summary');
     if (sectionSummary) addMeetCardListeners(sectionSummary);
+    bindPanelTabs(panelOrForm);
     bindAvailabilityInteractions(panelOrForm);
 
     // Respond side-panel specific logic

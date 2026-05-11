@@ -9,6 +9,7 @@ const authRouter = require('./routes/auth.routes');
 const meetingsRouter = require('./routes/meetings.routes');
 const sellerBlocksRouter = require('./routes/seller-blocks.routes');
 const sellersRouter = require('./routes/sellers.routes');
+const workHoursRouter = require('./routes/work-hours.routes');
 const { getActiveUsers, resetUsers } = require('./services/users.service');
 
 const app = express();
@@ -576,6 +577,7 @@ app.use('/auth', authRouter);
 app.use('/api', meetingsRouter);
 app.use('/api', sellerBlocksRouter);
 app.use('/api', sellersRouter);
+app.use('/api', workHoursRouter);
 
 app.listen(PORT, () => {
   console.log(`Backend listening on port ${PORT}`);
