@@ -87,15 +87,58 @@ async function getBusinessUserByEmail(email) {
   return response.data.records?.[0] || null;
 }
 
+async function getBusinessUsers() {
+  const response = await airtableClient.get(`/${BUSINESS_USERS_TABLE_NAME}`);
+  return response.data.records || [];
+}
+
+function normalizeLookupValue(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function getUserColorByName(records = [], name = '') {
+  const normalizedName = normalizeLookupValue(name);
+  if (!normalizedName) return '';
+
+  const record = records.find((candidate) => {
+    const candidateName = normalizeLookupValue(candidate.fields?.Nombre);
+    return candidateName === normalizedName ||
+      candidateName.includes(normalizedName) ||
+      normalizedName.includes(candidateName);
+  });
+
+  return record?.fields?.Color || '';
+}
+
+async function enrichMeetingsWithUserColors(records = []) {
+  if (!records.length) return records;
+
+  try {
+    const users = await getBusinessUsers();
+    return records.map((record) => ({
+      ...record,
+      fields: {
+        ...(record.fields || {}),
+        'Vendedora Color': getUserColorByName(users, record.fields?.Vendedora),
+        'Asignado por Color': getUserColorByName(users, record.fields?.['Asignado por'])
+      }
+    }));
+  } catch (error) {
+    console.error('Error enriqueciendo reuniones con colores de usuario:', error.response?.data || error.message);
+    return records;
+  }
+}
+
 async function getMeetingsByPhone(phone) {
   const formula = `{Telefono}="${escapeFormulaValue(phone)}"`;
   const response = await airtableClient.get(`/${MEETINGS_TABLE_NAME}`, {
     params: {
-      filterByFormula: formula
+      filterByFormula: formula,
+      sort: [{ field: 'Fecha', direction: 'desc' }]
     }
   });
 
-  return response.data.records || [];
+  return enrichMeetingsWithUserColors(response.data.records || []);
 }
 
 async function getMeetingByMeetLink(meetUrl) {

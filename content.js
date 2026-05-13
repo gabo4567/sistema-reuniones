@@ -1,6 +1,9 @@
 (function() {
   if (document.getElementById('custom-calendar-btn')) return;
   const API_BASE_URL = 'http://localhost:3000/api';
+  const AUTH_BASE_URL = API_BASE_URL.replace(/\/api$/, '');
+  const FD_AUTH_EMAIL_STORAGE_KEY = 'fdAuthEmail';
+  let fdAuthEmail = '';
 
   function isAllowedUrl() {
     const url = window.location.href;
@@ -57,6 +60,8 @@
       const recordId = record.id || '';
       const calendarEventId = fields['Google Calendar Event ID'] || '';
       const vendedora = fields['Vendedora'] || 'N/A';
+      const vendedoraColorStyle = getUserColorStyle(fields['Vendedora Color']);
+      const assignedByColorStyle = getUserColorStyle(fields['Asignado por Color']);
       const schedule = getMeetingScheduleMeta(fields);
       const status = fields['ESTADO'] || '';
       const type = fields['Tipo de Reunion'] || 'Meet';
@@ -79,7 +84,7 @@
               </div>
               <div class="fd-card-divider"></div>
               <div class="fd-card-row">
-                <span class="fd-card-vendedora">${escapeHtml(vendedora)}</span>
+                <span class="fd-card-vendedora fd-user-color-chip" ${vendedoraColorStyle ? `style="${vendedoraColorStyle}"` : ''}>${escapeHtml(vendedora)}</span>
                 <span class="${statusClass}">${escapeHtml(status || '–')}</span>
               </div>
               <div class="meet-card-extra-info" style="display:none;">
@@ -98,6 +103,10 @@
                     <div class="fd-card-detail-row">
                       <span class="fd-card-detail-label">Registro</span>
                       <span class="fd-card-detail-value">${registered}</span>
+                    </div>
+                    <div class="fd-card-detail-row">
+                      <span class="fd-card-detail-label">Asignado por</span>
+                      <span class="fd-card-detail-value fd-user-color-text" ${assignedByColorStyle ? `style="${assignedByColorStyle}"` : ''}>${escapeHtml(fields['Asignado por'] || 'N/A')}</span>
                     </div>
                   </div>
                   ${notes ? `<div class="fd-card-notes">${escapeHtml(notes)}</div>` : ''}
@@ -124,6 +133,8 @@
       const recordId = record.id || '';
       const calendarEventId = fields['Google Calendar Event ID'] || '';
       const vendedora = fields['Vendedora'] || 'N/A';
+      const vendedoraColorStyle = getUserColorStyle(fields['Vendedora Color']);
+      const assignedByColorStyle = getUserColorStyle(fields['Asignado por Color']);
       const schedule = getMeetingScheduleMeta(fields);
       const status = fields['ESTADO'] || '';
       const type = fields['Tipo de Reunion'] || 'Meet';
@@ -146,7 +157,7 @@
               </div>
               <div class="fd-card-divider"></div>
               <div class="fd-card-row">
-                <span class="fd-card-vendedora" style="font-weight:600;">${escapeHtml(vendedora)}</span>
+                <span class="fd-card-vendedora fd-user-color-chip" style="font-weight:600;${vendedoraColorStyle}">${escapeHtml(vendedora)}</span>
                 <span class="${statusClass}">${escapeHtml(status || '–')}</span>
               </div>
             </div>
@@ -163,6 +174,10 @@
                 <div class="fd-card-detail-row">
                   <span class="fd-card-detail-label">Registro</span>
                   <span class="fd-card-detail-value">${registered}</span>
+                </div>
+                <div class="fd-card-detail-row">
+                  <span class="fd-card-detail-label">Asignado por</span>
+                  <span class="fd-card-detail-value fd-user-color-text" ${assignedByColorStyle ? `style="${assignedByColorStyle}"` : ''}>${escapeHtml(fields['Asignado por'] || 'N/A')}</span>
                 </div>
               </div>
               ${notes ? `<div class="fd-card-notes">${escapeHtml(notes)}</div>` : ''}
@@ -323,10 +338,40 @@
     return null;
   }
 
+  function getStoredAuthEmail() {
+    if (fdAuthEmail) return Promise.resolve(fdAuthEmail);
+
+    return new Promise((resolve) => {
+      if (!window.chrome?.storage?.local) {
+        resolve('');
+        return;
+      }
+
+      chrome.storage.local.get([FD_AUTH_EMAIL_STORAGE_KEY], (result) => {
+        fdAuthEmail = result?.[FD_AUTH_EMAIL_STORAGE_KEY] || '';
+        resolve(fdAuthEmail);
+      });
+    });
+  }
+
+  function setStoredAuthEmail(email) {
+    fdAuthEmail = String(email || '').trim().toLowerCase();
+    if (window.chrome?.storage?.local) {
+      chrome.storage.local.set({ [FD_AUTH_EMAIL_STORAGE_KEY]: fdAuthEmail });
+    }
+  }
+
   async function fetchJson(url, options = {}) {
+    const headers = new Headers(options.headers || {});
+    const authEmail = await getStoredAuthEmail();
+    if (authEmail && !headers.has('X-FD-User-Email')) {
+      headers.set('X-FD-User-Email', authEmail);
+    }
+
     const response = await fetch(url, {
       credentials: 'include',
-      ...options
+      ...options,
+      headers
     });
     if (!response.ok) {
       const errorText = await response.text();
@@ -611,6 +656,35 @@
       .replace(/'/g, '&#39;');
   }
 
+  function normalizeHexColor(value) {
+    const color = String(value || '').trim();
+    if (/^#[0-9a-fA-F]{6}$/.test(color)) return color.toUpperCase();
+    if (/^#[0-9a-fA-F]{3}$/.test(color)) {
+      return `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`.toUpperCase();
+    }
+    return '';
+  }
+
+  function hexToRgba(hex, alpha) {
+    const color = normalizeHexColor(hex);
+    if (!color) return '';
+    const value = parseInt(color.slice(1), 16);
+    const r = (value >> 16) & 255;
+    const g = (value >> 8) & 255;
+    const b = value & 255;
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  function getUserColorStyle(color) {
+    const safeColor = normalizeHexColor(color);
+    if (!safeColor) return '';
+    return [
+      `--fd-user-color:${safeColor}`,
+      `--fd-user-color-bg:${hexToRgba(safeColor, 0.12)}`,
+      `--fd-user-color-border:${hexToRgba(safeColor, 0.34)}`
+    ].join(';');
+  }
+
   function isValidEmail(value) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
   }
@@ -676,6 +750,61 @@
     return panel?.dataset.currentUserRole || '';
   }
 
+  function isPanelAuthenticated(panel) {
+    return panel?.dataset.currentUserAuthenticated === 'true';
+  }
+
+  function clearProtectedPanelData(panel, message = 'Inicia sesion con Google para ver los datos del contacto.') {
+    if (!panel) return;
+
+    panel.dataset.currentPhone = '';
+    panel.dataset.currentName = '';
+    panel.dataset.currentEmail = '';
+    panel.dataset.selectedBookingTime = '';
+
+    const subtitle = panel.querySelector('.panel-subtitle');
+    if (subtitle) subtitle.textContent = 'Acceso restringido';
+
+    const quickSummaryEl = panel.querySelector('#fd-lead-quick-summary');
+    if (quickSummaryEl) {
+      quickSummaryEl.textContent = '';
+      quickSummaryEl.hidden = true;
+    }
+
+    const phoneEl = panel.querySelector('#fd-contact-phone');
+    if (phoneEl) {
+      phoneEl.querySelector('.fd-contact-value').textContent = '-';
+      phoneEl.setAttribute('data-copy', '');
+    }
+
+    const emailEl = panel.querySelector('#fd-contact-email');
+    if (emailEl) {
+      emailEl.querySelector('.fd-contact-value').textContent = '-';
+      emailEl.setAttribute('data-copy', '');
+    }
+
+    const countEl = panel.querySelector('#fd-stat-count');
+    const dateEl = panel.querySelector('#fd-stat-date');
+    const statusEl = panel.querySelector('#fd-stat-status');
+    const noteEl = panel.querySelector('#fd-stat-note');
+    if (countEl) countEl.textContent = '-';
+    if (dateEl) dateEl.textContent = '-';
+    if (statusEl) statusEl.innerHTML = '<span class="fd-badge fd-badge--gray">Bloqueado</span>';
+    if (noteEl) {
+      noteEl.textContent = message;
+      noteEl.classList.remove('is-empty');
+    }
+
+    const panelMeetingsContainer = panel.querySelector('.panel-section-summary > div');
+    if (panelMeetingsContainer) {
+      panelMeetingsContainer.innerHTML = `<div class="fd-empty-state">${escapeHtml(message)}</div>`;
+    }
+
+    setAvailabilityMessage(panel, message, true);
+    setBookingMessage(panel, '', false);
+    setBookingButtonState(panel, false);
+  }
+
   function activatePanelTab(panel, tabName) {
     if (!panel) return;
 
@@ -700,6 +829,10 @@
         renderEquipoView(panel, teamPanel, { embedded: true });
         teamPanel.dataset.loaded = 'true';
       }
+    }
+
+    if (nextTab === 'availability' && panel.dataset.refreshingUser !== 'true') {
+      refreshCurrentUser(panel);
     }
   }
 
@@ -755,7 +888,7 @@
         </div>
       `;
       container.querySelector('#fd-login-google-btn')?.addEventListener('click', () => {
-        window.open('http://localhost:3000/auth/google', '_blank', 'noopener,noreferrer');
+        openGoogleLogin(panel);
       });
       return;
     }
@@ -764,25 +897,27 @@
     const displayName = usuario?.nombre || currentUser.email;
     const role = usuario?.rol || currentUser.auth?.rol || 'Sin rol';
     const initials = getInitials(displayName);
+    const userColorStyle = getUserColorStyle(usuario?.color);
 
     if (isManagerRole(role)) {
       const puedeAtender = usuario?.puede_crear_meets === true;
       container.innerHTML = `
         <div class="fd-user-status">
           <div class="fd-user-identity">
-            <div class="fd-user-avatar fd-user-avatar--gerente">${escapeHtml(initials)}</div>
+            <div class="fd-user-avatar fd-user-avatar--gerente fd-user-color-avatar" ${userColorStyle ? `style="${userColorStyle}"` : ''}>${escapeHtml(initials)}</div>
             <div class="fd-user-info">
               <div class="fd-user-name">${escapeHtml(displayName)}</div>
               <div class="fd-user-email">${escapeHtml(currentUser.email)}</div>
             </div>
           </div>
           <div class="fd-badges">
-            <span class="fd-badge fd-badge--blue">Gerente</span>
+            <span class="fd-badge fd-user-color-badge" ${userColorStyle ? `style="${userColorStyle}"` : ''}>Gerente</span>
             ${puedeAtender
               ? '<span class="fd-badge fd-badge--green">Atiende reuniones</span>'
               : '<span class="fd-badge fd-badge--gray">No atiende reuniones</span>'
             }
           </div>
+          <button type="button" id="fd-login-google-btn">Cambiar cuenta Google</button>
         </div>
       `;
     } else {
@@ -791,22 +926,89 @@
       container.innerHTML = `
         <div class="fd-user-status">
           <div class="fd-user-identity">
-            <div class="fd-user-avatar fd-user-avatar--vendedora">${escapeHtml(initials)}</div>
+            <div class="fd-user-avatar fd-user-avatar--vendedora fd-user-color-avatar" ${userColorStyle ? `style="${userColorStyle}"` : ''}>${escapeHtml(initials)}</div>
             <div class="fd-user-info">
               <div class="fd-user-name">${escapeHtml(displayName)}</div>
               <div class="fd-user-email">${escapeHtml(currentUser.email)}</div>
             </div>
           </div>
           <div class="fd-badges">
-            <span class="fd-badge fd-badge--violet">Vendedora</span>
+            <span class="fd-badge fd-user-color-badge" ${userColorStyle ? `style="${userColorStyle}"` : ''}>Vendedora</span>
             <span class="fd-badge ${recibe ? 'fd-badge--green' : 'fd-badge--gray'}">${recibe ? 'Recibe reuniones' : 'No recibe'}</span>
             ${meet ? '<span class="fd-badge fd-badge--blue">Meet</span>' : ''}
           </div>
+          <button type="button" id="fd-login-google-btn">Cambiar cuenta Google</button>
         </div>
       `;
     }
 
+    container.querySelector('#fd-login-google-btn')?.addEventListener('click', () => {
+      openGoogleLogin(panel);
+    });
     renderRoleActions(panel, currentUser);
+  }
+
+  function getGoogleAuthWindowFeatures() {
+    const width = 520;
+    const height = Math.min(720, Math.max(560, window.screen?.availHeight ? window.screen.availHeight - 80 : 680));
+    const left = Math.max(0, Math.round(((window.screen?.availWidth || window.innerWidth) - width) / 2));
+    const top = 24;
+
+    return [
+      'popup=yes',
+      `width=${width}`,
+      `height=${height}`,
+      `left=${left}`,
+      `top=${top}`,
+      'resizable=yes',
+      'scrollbars=yes'
+    ].join(',');
+  }
+
+  function setLoginButtonState(panel, isLoading) {
+    const button = panel?.querySelector('#fd-login-google-btn');
+    if (!button) return;
+    button.disabled = isLoading;
+    button.textContent = isLoading ? 'Esperando Google...' : 'Conectar con Google';
+  }
+
+  function openGoogleLogin(panel) {
+    setLoginButtonState(panel, true);
+    const loginWindow = window.open(`${AUTH_BASE_URL}/auth/google?source=extension`, 'fdGoogleAuth', getGoogleAuthWindowFeatures());
+
+    if (!loginWindow) {
+      setLoginButtonState(panel, false);
+      const emailEl = panel?.querySelector('#fd-current-user .fd-user-email');
+      if (emailEl) emailEl.textContent = 'Permiti las ventanas emergentes para iniciar sesion.';
+      return;
+    }
+
+    loginWindow.focus?.();
+
+    const poll = window.setInterval(() => {
+      if (!loginWindow.closed) return;
+      window.clearInterval(poll);
+      setLoginButtonState(panel, false);
+      refreshCurrentUser(panel);
+    }, 1200);
+  }
+
+  function bindGoogleAuthMessages(panel) {
+    if (!panel || panel.dataset.authMessageBound === 'true') return;
+    panel.dataset.authMessageBound = 'true';
+
+    window.addEventListener('message', async (event) => {
+      if (event.origin !== AUTH_BASE_URL) return;
+      const data = event.data || {};
+      if (data.source !== 'extension-fd-auth') return;
+
+      if (data.status === 'success' && data.email) {
+        setStoredAuthEmail(data.email);
+        await refreshCurrentUser(panel);
+      } else {
+        setLoginButtonState(panel, false);
+      }
+    });
   }
 
   function setRescheduleMessage(form, message, isError = false) {
@@ -1223,10 +1425,11 @@
         const activa = seller.activa;
         const recibe = seller.puede_recibir_reuniones;
         const rid = escapeHtml(seller.recordId || '');
+        const sellerColorStyle = getUserColorStyle(seller.color);
         return `
-          <div class="fd-seller-card">
+          <div class="fd-seller-card" ${sellerColorStyle ? `style="${sellerColorStyle}"` : ''}>
             <div class="fd-seller-top">
-              <span class="fd-seller-name">${escapeHtml(seller.nombre || seller.correo)}</span>
+              <span class="fd-seller-name fd-user-color-text">${escapeHtml(seller.nombre || seller.correo)}</span>
               <div class="fd-badges">
                 <span class="fd-badge ${activa ? 'fd-badge--green' : 'fd-badge--gray'}">${activa ? 'Activa' : 'Inactiva'}</span>
                 <span class="fd-badge ${recibe ? 'fd-badge--blue' : 'fd-badge--gray'}">${recibe ? 'Recibe reuniones' : 'Reuniones pausadas'}</span>
@@ -1379,6 +1582,11 @@
   }
 
   async function refreshCurrentUser(panel) {
+    if (panel?.dataset.refreshingUser === 'true') {
+      return { authenticated: isPanelAuthenticated(panel) };
+    }
+    if (panel) panel.dataset.refreshingUser = 'true';
+
     const container = panel?.querySelector('#fd-current-user');
     if (container) {
       container.innerHTML = `
@@ -1398,18 +1606,27 @@
       const currentUser = await fetchCurrentUser();
       panel.dataset.currentUserRole = currentUser?.usuario?.rol || currentUser?.auth?.rol || '';
       panel.dataset.currentUserEmail = currentUser?.email || '';
+      panel.dataset.currentUserAuthenticated = currentUser?.authenticated ? 'true' : 'false';
       renderCurrentUser(panel, currentUser);
       configureRoleTabs(panel, panel.dataset.currentUserRole);
+
+      if (!currentUser?.authenticated) {
+        clearProtectedPanelData(panel);
+      }
 
       const gerenteSection = panel?.querySelector('#fd-gerente-section');
       if (gerenteSection) {
         gerenteSection.innerHTML = '';
       }
+
+      return currentUser;
     } catch (error) {
       console.error('Extension FD: error al obtener usuario actual', error);
       panel.dataset.currentUserRole = '';
       panel.dataset.currentUserEmail = '';
+      panel.dataset.currentUserAuthenticated = 'false';
       configureRoleTabs(panel, '');
+      clearProtectedPanelData(panel, 'No se pudo verificar la sesion. Revisa que el backend este activo.');
       if (container) {
         container.innerHTML = `
           <div class="fd-user-status fd-user-status--warning">
@@ -1423,6 +1640,9 @@
           </div>
         `;
       }
+      return { authenticated: false };
+    } finally {
+      if (panel) panel.dataset.refreshingUser = 'false';
     }
   }
 
@@ -1476,6 +1696,12 @@
     }
 
     actionButton?.addEventListener('click', async () => {
+      if (!isPanelAuthenticated(panel)) {
+        clearProtectedPanelData(panel);
+        activatePanelTab(panel, 'availability');
+        return;
+      }
+
       const date = dateInput?.value;
       const duration = durationSelect?.value || '30';
       panel.dataset.selectedBookingTime = '';
@@ -1536,6 +1762,12 @@
     });
 
     bookButton?.addEventListener('click', async () => {
+      if (!isPanelAuthenticated(panel)) {
+        clearProtectedPanelData(panel);
+        activatePanelTab(panel, 'availability');
+        return;
+      }
+
       if (panel.dataset.bookingInProgress === 'true') return;
 
       const telefono = panel.dataset.currentPhone || '';
@@ -1642,8 +1874,20 @@
     return getDisplayMeetingNote(note);
   }
 
+  function sortMeetingsByDateDesc(meetings = []) {
+    return [...meetings].sort((a, b) => {
+      const aTime = new Date(a?.fields?.['Fecha'] || 0).getTime();
+      const bTime = new Date(b?.fields?.['Fecha'] || 0).getTime();
+      return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+    });
+  }
+
   function updatePanelWithData(fields, meetings = []) {
     const panel = document.getElementById('custom-side-panel');
+    if (panel && !isPanelAuthenticated(panel)) {
+      clearProtectedPanelData(panel);
+      return;
+    }
 
     if (panel && fields) {
       panel.dataset.currentPhone = fields['Telefono'] || panel.dataset.currentPhone || '';
@@ -1666,18 +1910,18 @@
     }
 
     const role = panel?.dataset.currentUserRole || '';
-    const meetingsHTML = isManagerRole(role) ? getGerenteMeetCardsHTML(meetings) : getMeetCardsHTML(meetings);
+    const sortedMeetings = sortMeetingsByDateDesc(meetings);
+    const meetingsHTML = isManagerRole(role) ? getGerenteMeetCardsHTML(sortedMeetings) : getMeetCardsHTML(sortedMeetings);
     const panelMeetingsContainer = panel?.querySelector('.panel-section-summary > div');
     if (panelMeetingsContainer) {
-      const count = meetings?.length || 0;
+      const count = sortedMeetings.length;
       const headerHTML = `<div class="fd-meets-header"><span class="fd-meets-title">Reuniones</span><span class="fd-meets-count">${count}</span></div>`;
       panelMeetingsContainer.innerHTML = headerHTML + meetingsHTML;
     }
 
     // Stats from meetings array
     if (panel) {
-      const sorted = [...meetings].sort((a, b) => new Date(b.fields['Fecha'] || 0) - new Date(a.fields['Fecha'] || 0));
-      const last = sorted[0];
+      const last = sortedMeetings[0];
       const status = last?.fields['ESTADO'] || '';
       const note = getDisplayMeetingNote(last?.fields['Notas']);
 
@@ -1687,7 +1931,7 @@
       const noteEl = panel.querySelector('#fd-stat-note');
       const quickSummaryEl = panel.querySelector('#fd-lead-quick-summary');
 
-      if (countEl) countEl.textContent = `${meetings.length} reunion${meetings.length === 1 ? '' : 'es'}`;
+      if (countEl) countEl.textContent = `${sortedMeetings.length} reunion${sortedMeetings.length === 1 ? '' : 'es'}`;
       if (dateEl) dateEl.textContent = last ? formatAirtableDate(last.fields['Fecha']) : '–';
       if (statusEl) statusEl.innerHTML = `<span class="${getStatusBadgeClass(status)}">${escapeHtml(status || '–')}</span>`;
       if (noteEl) {
@@ -1855,9 +2099,12 @@
         <div class="fd-tab-panel" data-tab-panel="availability" hidden>
           <div id="fd-current-user">
             <div class="fd-user-status">
-              <div>
-                <strong>Cargando usuario...</strong>
-                <span>Consultando sesion actual</span>
+              <div class="fd-user-identity">
+                <div class="fd-user-avatar fd-user-avatar--gray">...</div>
+                <div class="fd-user-info">
+                  <div class="fd-user-name">Cargando usuario...</div>
+                  <div class="fd-user-email">Consultando sesion actual</div>
+                </div>
               </div>
             </div>
           </div>
@@ -1874,6 +2121,7 @@
     if (sectionSummary) addMeetCardListeners(sectionSummary);
     bindPanelTabs(panelOrForm);
     bindAvailabilityInteractions(panelOrForm);
+    bindGoogleAuthMessages(panelOrForm);
 
     // Respond side-panel specific logic
     const resizeHandle = panelOrForm.querySelector('#panel-resize-handle');
@@ -2161,7 +2409,10 @@
             refreshCurrentUser(panelOrForm);
           } else {
             (async () => {
-              await refreshCurrentUser(panelOrForm);
+              const currentUser = await refreshCurrentUser(panelOrForm);
+              if (!currentUser?.authenticated) {
+                return;
+              }
               const fields = await fetchContactData(phone);
               const meetings = await fetchMeetingsData(phone);
               if (fields) updatePanelWithData(fields, meetings);

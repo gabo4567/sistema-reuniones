@@ -325,6 +325,21 @@ async function getSellerNameFromUser(user) {
   return normalizeSellerName(String(user?.email || '').split('@')[0]);
 }
 
+async function getAssignedByName(req) {
+  const email = req.authUser?.email || req.session.googleUserEmail || '';
+  if (!email) return '';
+
+  try {
+    const businessUser = await getBusinessUserByEmail(email);
+    const name = String(businessUser?.fields?.Nombre || '').trim();
+    if (name) return name;
+  } catch (error) {
+    console.error(`Error buscando asignador ${email}:`, error.response?.data || error.message);
+  }
+
+  return email;
+}
+
 function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
@@ -908,6 +923,7 @@ router.post('/book', async (req, res) => {
 
     const client = await findOrCreateClient({ telefono, nombre, email });
     const sellerName = normalizeSellerName(assignedEntry.seller.nombre) || await getSellerNameFromUser(assignedUser);
+    const assignedBy = await getAssignedByName(req);
     const meetingFields = {
       Id: `${telefono}-${date}-${time}`,
       Nombre: nombre,
@@ -919,6 +935,7 @@ router.post('/book', async (req, res) => {
       Fecha: startDateTime,
       Duracion: parsedDuration,
       'Google Calendar Event ID': calendarEvent.id,
+      ...(assignedBy ? { 'Asignado por': assignedBy } : {}),
       Origen: 'API',
       ...(sellerName ? { Vendedora: sellerName } : {}),
       ...(client?.id ? { Cliente: [client.id] } : {})
@@ -1138,12 +1155,14 @@ router.post('/reschedule', async (req, res) => {
     }
 
     const sellerName = normalizeSellerName(assignedEntry.seller.nombre) || await getSellerNameFromUser(assignedUser);
+    const assignedBy = await getAssignedByName(req);
 
     await updateMeeting(recordId, {
       Fecha: startDateTime,
       'Link de meet': meetLink,
       'Google Calendar Event ID': calendarEvent.id,
       ESTADO: 'PENDIENTE',
+      ...(assignedBy ? { 'Asignado por': assignedBy } : {}),
       ...(sellerName ? { Vendedora: sellerName } : {})
     });
 

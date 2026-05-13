@@ -34,6 +34,7 @@ function mapRecordToSeller(record) {
     nombre: fields.Nombre || '',
     telefono: fields.Telefono || '',
     correo: fields.Correo || '',
+    color: fields.Color || '',
     rol: normalizeRole(fields.Rol),
     activa: fields.Activa === true,
     puede_recibir_reuniones: fields['Puede recibir reuniones'] === true,

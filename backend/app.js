@@ -10,7 +10,7 @@ const meetingsRouter = require('./routes/meetings.routes');
 const sellerBlocksRouter = require('./routes/seller-blocks.routes');
 const sellersRouter = require('./routes/sellers.routes');
 const workHoursRouter = require('./routes/work-hours.routes');
-const { getActiveUsers, resetUsers } = require('./services/users.service');
+const { getActiveUsers, getAuthUserByEmail, resetUsers } = require('./services/users.service');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -27,6 +27,50 @@ function escapeHtml(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+}
+
+async function requireApiAuth(req, res, next) {
+  if (req.path === '/me') {
+    return next();
+  }
+
+  const sessionEmail = normalizeEmail(req.session.googleUserEmail);
+  const extensionEmail = normalizeEmail(req.get('x-fd-user-email'));
+  const email = isValidEmail(extensionEmail) ? extensionEmail : sessionEmail;
+
+  if (!email || !isValidEmail(email)) {
+    return res.status(401).json({
+      error: 'Authentication required',
+      message: 'Inicia sesion con Google para acceder a estos datos.'
+    });
+  }
+
+  try {
+    const authUser = await getAuthUserByEmail(email);
+    if (!authUser?.activo) {
+      return res.status(401).json({
+        error: 'Authentication required',
+        message: 'La sesion no esta activa. Inicia sesion con Google nuevamente.'
+      });
+    }
+
+    req.authUser = authUser;
+    req.session.googleUserEmail = email;
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      error: 'Failed to validate authenticated user',
+      details: error.response?.data || error.message
+    });
+  }
 }
 
 function renderDebugResetPage({ activeUsers = [], error = '' }) {
@@ -574,6 +618,7 @@ app.post('/debug/reset-users', async (req, res) => {
 
 app.use('/admin', adminRouter);
 app.use('/auth', authRouter);
+app.use('/api', requireApiAuth);
 app.use('/api', meetingsRouter);
 app.use('/api', sellerBlocksRouter);
 app.use('/api', sellersRouter);

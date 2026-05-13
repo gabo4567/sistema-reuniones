@@ -442,6 +442,18 @@
   letter-spacing: 1px;
 }
 
+.fd-user-color-avatar,
+.fd-user-color-badge,
+.fd-user-color-chip {
+  background: var(--fd-user-color-bg, var(--fd-accent-bg)) !important;
+  color: var(--fd-user-color, var(--fd-accent)) !important;
+  border-color: var(--fd-user-color-border, var(--fd-accent-border)) !important;
+}
+
+.fd-user-color-text {
+  color: var(--fd-user-color, var(--fd-text-primary)) !important;
+}
+
 .fd-user-info {
   flex: 1;
   min-width: 0;
@@ -679,9 +691,49 @@
     border-color: var(--fd-accent-border);
   }
 
+  #custom-side-panel .reschedule-check-btn {
+    background-color: #0B57D0;
+    color: #FFFFFF !important;
+    border-color: #0B57D0;
+    box-shadow: 0 1px 2px rgba(17,24,39,0.10);
+  }
+
+  #custom-side-panel .reschedule-check-btn:hover:not(:disabled) {
+    background-color: #0A4DB8;
+    color: #FFFFFF !important;
+    border-color: #0A4DB8;
+  }
+
+  #custom-side-panel .fd-user-status button {
+    background-color: #0B57D0;
+    color: #FFFFFF !important;
+    border-color: #0B57D0;
+    box-shadow: 0 1px 2px rgba(17,24,39,0.10);
+  }
+
+  #custom-side-panel .fd-user-status button:hover:not(:disabled) {
+    background-color: #0A4DB8;
+    color: #FFFFFF !important;
+    border-color: #0A4DB8;
+  }
+
   #custom-side-panel button:disabled {
     opacity: 0.62;
     color: #6B7280 !important;
+  }
+
+  #custom-side-panel .reschedule-check-btn:disabled {
+    background-color: #F3F4F6;
+    color: #6B7280 !important;
+    border-color: rgba(17,24,39,0.22);
+    box-shadow: 0 1px 2px rgba(17,24,39,0.06);
+  }
+
+  #custom-side-panel .fd-user-status button:disabled {
+    background-color: #F3F4F6;
+    color: #6B7280 !important;
+    border-color: rgba(17,24,39,0.22);
+    box-shadow: 0 1px 2px rgba(17,24,39,0.06);
   }
 
   #custom-side-panel .fd-role-card .fd-work-hour-remove {
@@ -1476,9 +1528,19 @@
 }
 
 .fd-card-vendedora {
+  display: inline-flex;
+  align-items: center;
+  max-width: 60%;
+  min-height: 22px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--fd-radius-pill);
   font-size: 12px;
   color: var(--fd-text-secondary);
   font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Expandable body (vendedora view) */
@@ -1743,6 +1805,11 @@
   background: var(--fd-bg-elevated);
   margin-bottom: 8px;
   transition: border-color var(--fd-transition);
+}
+
+.fd-seller-card[style*="--fd-user-color"] {
+  border-color: var(--fd-user-color-border);
+  box-shadow: inset 3px 0 0 var(--fd-user-color);
 }
 
 .fd-seller-card:hover {

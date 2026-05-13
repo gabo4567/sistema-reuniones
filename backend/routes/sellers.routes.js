@@ -86,8 +86,10 @@ router.get('/sellers', async (_req, res) => {
 });
 
 router.get('/me', async (req, res) => {
-  let email = req.session.googleUserEmail;
-  let resolvedFrom = 'session';
+  const extensionEmailHeader = normalizeEmail(req.get('x-fd-user-email'));
+  const extensionEmail = isValidEmail(extensionEmailHeader) ? extensionEmailHeader : '';
+  let email = extensionEmail || req.session.googleUserEmail;
+  let resolvedFrom = extensionEmail ? 'extension_storage' : 'session';
 
   if (!email) {
     try {

@@ -125,6 +125,22 @@ function renderLoginSuccessPage(userEmail) {
             <a href="/health">Ver health JSON</a>
           </nav>
         </main>
+        <script>
+          (function() {
+            var payload = {
+              source: 'extension-fd-auth',
+              status: 'success',
+              email: ${JSON.stringify(userEmail)}
+            };
+
+            if (window.opener && !window.opener.closed) {
+              window.opener.postMessage(payload, '*');
+              window.setTimeout(function() {
+                window.close();
+              }, 900);
+            }
+          })();
+        </script>
       </body>
     </html>
   `;
@@ -230,6 +246,17 @@ function renderLoginErrorPage({ title, message, statusText = 'Login no completad
             <a href="/">Ir al inicio</a>
           </nav>
         </main>
+        <script>
+          (function() {
+            if (window.opener && !window.opener.closed) {
+              window.opener.postMessage({
+                source: 'extension-fd-auth',
+                status: 'error',
+                message: ${JSON.stringify(title)}
+              }, '*');
+            }
+          })();
+        </script>
       </body>
     </html>
   `;
