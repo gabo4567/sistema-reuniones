@@ -63,7 +63,7 @@
       const phase = fields['Fase del Momento'] || 'N/A';
       const meetLink = fields['Link de meet'] || '';
       const registered = fields['Logramos Registro?'] === true ? '✅' : '❌';
-      const notes = fields['Notas'] || '';
+      const notes = getDisplayMeetingNote(fields['Notas']);
       const statusClass = getStatusBadgeClass(status);
 
       return `
@@ -130,7 +130,7 @@
       const phase = fields['Fase del Momento'] || 'N/A';
       const meetLink = fields['Link de meet'] || '';
       const registered = fields['Logramos Registro?'] === true ? '✅' : '❌';
-      const notes = fields['Notas'] || '';
+      const notes = getDisplayMeetingNote(fields['Notas']);
       const statusClass = getStatusBadgeClass(status);
 
       return `
@@ -413,7 +413,7 @@
       if (opt) faseSel.value = opt.value;
     }
     const notas = meetForm.querySelector('#fd-meet-notas');
-    if (notas && notasValue != null) notas.value = String(notasValue);
+    if (notas && notasValue != null) notas.value = getDisplayMeetingNote(notasValue);
   }
 
   async function saveMeetingFormToAirtable(meetForm) {
@@ -1627,15 +1627,19 @@
       .trim();
   }
 
-  function buildLeadQuickSummary({ count, status, last, note }) {
-    if (!count) return 'Lead sin reuniones registradas todavia.';
+  function isAutomaticNote(note) {
+    const clean = String(note || '').trim();
+    return /^Reprogramada para \d{4}-\d{2}-\d{2} a las \d{2}:\d{2}\. Duracion: \d+ min\.?$/i.test(clean) ||
+      /^Agendada automaticamente\. Duracion: \d+ minutos\.?$/i.test(clean);
+  }
 
-    const statusText = formatDisplayStatus(status);
-    const lastDate = last ? formatAirtableDate(last.fields['Fecha']) : '';
-    const hasReprogramNote = /reprogram/i.test(note || '');
-    const interaction = hasReprogramNote ? 'Ultima accion: reprogramacion.' : 'Ultima accion: reunion registrada.';
+  function getDisplayMeetingNote(note) {
+    if (isAutomaticNote(note)) return '';
+    return formatDisplayNote(note);
+  }
 
-    return `Lead ${statusText.toLowerCase()} con ${count} reunion${count === 1 ? '' : 'es'} registrada${count === 1 ? '' : 's'}. ${lastDate ? `Ultima reunion: ${lastDate}. ` : ''}${interaction}`;
+  function buildLeadQuickSummary(note) {
+    return getDisplayMeetingNote(note);
   }
 
   function updatePanelWithData(fields, meetings = []) {
@@ -1675,7 +1679,7 @@
       const sorted = [...meetings].sort((a, b) => new Date(b.fields['Fecha'] || 0) - new Date(a.fields['Fecha'] || 0));
       const last = sorted[0];
       const status = last?.fields['ESTADO'] || '';
-      const note = last?.fields['Notas'] || '';
+      const note = getDisplayMeetingNote(last?.fields['Notas']);
 
       const countEl = panel.querySelector('#fd-stat-count');
       const dateEl = panel.querySelector('#fd-stat-date');
@@ -1686,15 +1690,16 @@
       if (countEl) countEl.textContent = `${meetings.length} reunion${meetings.length === 1 ? '' : 'es'}`;
       if (dateEl) dateEl.textContent = last ? formatAirtableDate(last.fields['Fecha']) : '–';
       if (statusEl) statusEl.innerHTML = `<span class="${getStatusBadgeClass(status)}">${escapeHtml(status || '–')}</span>`;
-      if (noteEl) noteEl.textContent = note || 'Sin notas';
+      if (noteEl) {
+        noteEl.textContent = note || '-';
+        noteEl.classList.toggle('is-empty', !note);
+      }
       if (statusEl) statusEl.innerHTML = `<span class="${getStatusBadgeClass(status)}">${escapeHtml(formatDisplayStatus(status))}</span>`;
-      if (noteEl) noteEl.textContent = note ? formatDisplayNote(note) : 'Sin notas';
-      if (quickSummaryEl) quickSummaryEl.textContent = buildLeadQuickSummary({
-        count: meetings.length,
-        status,
-        last,
-        note
-      });
+      if (quickSummaryEl) {
+        const summaryText = buildLeadQuickSummary(note);
+        quickSummaryEl.textContent = summaryText;
+        quickSummaryEl.hidden = !summaryText;
+      }
     }
 
     if (!panel || !fields) return;
@@ -1790,7 +1795,7 @@
         </div>
         <div class="fd-tab-panel is-active" data-tab-panel="summary">
         <div class="panel-subtitle">Contacto sin Reuniones</div>
-        <div class="fd-lead-quick-summary" id="fd-lead-quick-summary">Lead sin reuniones registradas todavia.</div>
+        <div class="fd-lead-quick-summary" id="fd-lead-quick-summary" hidden></div>
         <div class="fd-contact-fields">
           <div class="copyable-item" id="fd-contact-phone" data-copy="465498765346">
             <span class="fd-contact-label">Tel.</span>
@@ -1819,7 +1824,7 @@
         </div>
         <div class="fd-note-card">
           <div class="fd-note-label">Ultima interaccion / notas</div>
-          <div class="nota-valor" id="fd-stat-note">Sin notas</div>
+          <div class="nota-valor is-empty" id="fd-stat-note">-</div>
         </div>
         <div class="separator"></div>
         <div class="availability-section">

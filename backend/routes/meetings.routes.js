@@ -920,7 +920,6 @@ router.post('/book', async (req, res) => {
       Duracion: parsedDuration,
       'Google Calendar Event ID': calendarEvent.id,
       Origen: 'API',
-      Notas: `Agendada automaticamente. Duracion: ${parsedDuration} minutos.`,
       ...(sellerName ? { Vendedora: sellerName } : {}),
       ...(client?.id ? { Cliente: [client.id] } : {})
     };
@@ -1145,8 +1144,7 @@ router.post('/reschedule', async (req, res) => {
       'Link de meet': meetLink,
       'Google Calendar Event ID': calendarEvent.id,
       ESTADO: 'PENDIENTE',
-      ...(sellerName ? { Vendedora: sellerName } : {}),
-      Notas: `Reprogramada para ${date} a las ${time}. Duracion: ${parsedDuration} min.`
+      ...(sellerName ? { Vendedora: sellerName } : {})
     });
 
     return res.json({

@@ -785,6 +785,11 @@
   line-height: 1.45;
 }
 
+.fd-lead-quick-summary.is-empty {
+  text-align: center;
+  color: var(--fd-text-tertiary);
+}
+
 .fd-contact-fields {
   display: flex;
   flex-direction: column;
@@ -919,6 +924,11 @@
   line-height: 1.6;
   word-wrap: break-word;
   white-space: normal;
+}
+
+.nota-valor.is-empty {
+  text-align: center;
+  color: var(--fd-text-tertiary);
 }
 
 /* ─── LEGACY COMPAT (kept for any remaining summary-row usages) ───────────── */
