@@ -163,6 +163,24 @@ async function getActiveUsers() {
   return (response.data.records || []).map(mapRecordToUser);
 }
 
+async function listAuthUsers() {
+  const records = [];
+  let offset = '';
+
+  do {
+    const response = await airtableClient.get(`/${AUTH_USERS_TABLE_NAME}`, {
+      params: {
+        ...(offset ? { offset } : {})
+      }
+    });
+
+    records.push(...(response.data.records || []));
+    offset = response.data.offset || '';
+  } while (offset);
+
+  return records.map(mapRecordToUser);
+}
+
 async function getAuthUserByEmail(email) {
   const record = await findUserRecordByEmail(email);
   return record ? mapRecordToUser(record) : null;
@@ -193,6 +211,7 @@ module.exports = {
   saveUser,
   getAuthUserByEmail,
   getActiveUsers,
+  listAuthUsers,
   resetUsers,
   normalizeRole
 };

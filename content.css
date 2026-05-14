@@ -1031,6 +1031,7 @@
   letter-spacing: -0.1px;
 }
 
+#booking-email,
 #availability-date,
 #availability-duration,
 .reschedule-date,
@@ -1962,6 +1963,42 @@
   border-color: var(--fd-border-default);
 }
 
+.fd-team-readiness {
+  padding: 10px 12px;
+  border-radius: var(--fd-radius-sm);
+  border: 1px solid var(--fd-border-subtle);
+  background: var(--fd-bg-elevated);
+  margin-bottom: 10px;
+}
+
+.fd-team-readiness--ready {
+  border-color: rgba(52,168,83,0.34);
+  background: rgba(52,168,83,0.10);
+}
+
+.fd-team-readiness--warning {
+  border-color: rgba(251,188,4,0.38);
+  background: rgba(251,188,4,0.12);
+}
+
+.fd-team-readiness-title {
+  color: var(--fd-text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+
+.fd-team-readiness-text,
+.fd-seller-auth-warning {
+  color: var(--fd-text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.fd-seller-auth-warning {
+  margin: -4px 0 9px;
+}
+
 .fd-seller-top {
   display: flex;
   align-items: center;
@@ -2024,6 +2061,56 @@
 }
 
 /* ─── ADD SELLER FORM ─────────────────────────────────────────────────────── */
+.fd-seller-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--fd-border-subtle);
+}
+
+.fd-seller-edit-form[hidden] {
+  display: none;
+}
+
+.fd-seller-edit-form input,
+.fd-seller-edit-form select {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--fd-bg-input);
+  color: var(--fd-text-primary);
+  border: 1px solid var(--fd-border-default);
+  border-radius: var(--fd-radius-sm);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.fd-seller-edit-form label,
+.fd-add-seller-form label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--fd-text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.fd-seller-edit-form input[type="checkbox"],
+.fd-add-seller-form input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
+.fd-seller-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 2px;
+}
+
 .fd-add-seller-section {
   margin-top: 16px;
   padding-top: 16px;

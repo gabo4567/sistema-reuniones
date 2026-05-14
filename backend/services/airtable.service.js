@@ -66,9 +66,27 @@ async function createClient({ telefono, nombre, email }) {
   return response.data.records?.[0] || null;
 }
 
+async function updateClientEmail(recordId, email) {
+  const response = await airtableClient.patch(`/${CLIENTS_TABLE_NAME}`, {
+    records: [
+      {
+        id: recordId,
+        fields: {
+          Correo: email || ''
+        }
+      }
+    ]
+  });
+
+  return response.data.records?.[0] || null;
+}
+
 async function findOrCreateClient({ telefono, nombre, email }) {
   const existingClient = await getContactByPhone(telefono);
   if (existingClient) {
+    if (email && !existingClient.fields?.Correo) {
+      return updateClientEmail(existingClient.id, email);
+    }
     return existingClient;
   }
 

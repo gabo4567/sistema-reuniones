@@ -512,8 +512,7 @@ function normalizeEmail(email) {
 
 function isSellerOperational(seller) {
   return seller?.activa === true &&
-    seller?.puede_recibir_reuniones === true &&
-    seller?.puede_crear_meets === true;
+    seller?.puede_recibir_reuniones === true;
 }
 
 function isSellerBlocked(sellerRecordId, date, startDateTime, endDateTime, blocks = []) {
@@ -1119,7 +1118,7 @@ router.post('/book', async (req, res) => {
       Id: `${telefono}-${date}-${time}`,
       Nombre: nombre,
       'Tipo de Reunion': 'MEET',
-      ESTADO: 'PENDIENTE',
+      ESTADO: 'Pendiente',
       'Fase del Momento': normalizedPhase,
       'Link de meet': meetLink,
       'Logramos Registro?': false,
@@ -1366,7 +1365,7 @@ router.post('/reschedule', async (req, res) => {
       Fecha: startDateTime,
       'Link de meet': meetLink,
       'Google Calendar Event ID': calendarEvent.id,
-      ESTADO: 'PENDIENTE',
+      ESTADO: 'Pendiente',
       ...(assignedBy ? { 'Asignado por': assignedBy } : {}),
       ...(sellerName ? { Vendedora: sellerName } : {})
     });

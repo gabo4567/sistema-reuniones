@@ -342,12 +342,23 @@
 
   /** Toma el número de conversación en Respond.io desde el subtítulo (ej. "Fase 1 - para: 5493777316555"). */
   function getRespondPagePhone() {
-    const nodes = document.querySelectorAll('div.dls-whitespace-nowrap.dls-truncate');
+    const nodes = document.querySelectorAll('div.dls-whitespace-nowrap.dls-truncate, span.hover\\:dls-text-text-selected, span.notranslate, div.notranslate');
     for (const el of nodes) {
       const text = (el.textContent || '').trim();
-      const match = text.match(/para:\s*(\d+)/i);
-      if (match) return match[1];
+      const targetMatch = text.match(/para:\s*([+\d][\d\s().-]{7,})/i);
+      if (targetMatch) return targetMatch[1].replace(/\D/g, '');
     }
+
+    for (const el of nodes) {
+      const text = (el.textContent || '').trim();
+      if (/@/.test(text)) continue;
+      const phoneMatch = text.match(/(?:\+?\d[\d\s().-]{7,}\d)/);
+      if (phoneMatch) {
+        const phone = phoneMatch[0].replace(/\D/g, '');
+        if (phone.length >= 8) return phone;
+      }
+    }
+
     return null;
   }
 
@@ -361,6 +372,35 @@
     for (const el of nodes) {
       const phase = normalizeRespondPhase(el.textContent || '');
       if (phase) return phase;
+    }
+
+    return '';
+  }
+
+  function getRespondPageName() {
+    const nameEl = document.querySelector('span.dls-txt-h6.dls-line-clamp-1.dls-break-all.dls-text-text-primary.dls-font-bold.notranslate[translate="no"]');
+    return String(nameEl?.textContent || '').trim();
+  }
+
+  function extractEmailFromText(value) {
+    const match = String(value || '').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    return match ? match[0].trim() : '';
+  }
+
+  function getRespondPageEmail() {
+    const emailSpans = Array.from(document.querySelectorAll('span.hover\\:dls-text-text-selected'));
+    for (const span of emailSpans) {
+      const email = extractEmailFromText(span.textContent || '');
+      if (isValidEmail(email)) return email;
+    }
+
+    const placeholders = ['Añadir Dirección de correo electrónico', 'Add Email Address'];
+    const controls = Array.from(document.querySelectorAll('input[placeholder], textarea[placeholder]'));
+
+    for (const placeholder of placeholders) {
+      const control = controls.find((el) => String(el.getAttribute('placeholder') || '').trim() === placeholder);
+      const email = extractEmailFromText(control?.value || '');
+      if (isValidEmail(email)) return email;
     }
 
     return '';
@@ -494,6 +534,31 @@
     if (notas && notasValue != null) notas.value = getDisplayMeetingNote(notasValue);
   }
 
+  function setMeetFormAuthRequired(meetForm, authRequired) {
+    if (!meetForm) return;
+    meetForm.dataset.authRequired = authRequired ? 'true' : 'false';
+
+    meetForm.querySelectorAll('#fd-meet-vendedora, #fd-meet-fecha, #fd-meet-estado, #fd-meet-fase, #fd-meet-registro, #fd-meet-notas, #fd-meet-guardar').forEach(control => {
+      control.disabled = authRequired;
+    });
+
+    if (authRequired) {
+      const fechaEl = meetForm.querySelector('#fd-meet-fecha');
+      const registroEl = meetForm.querySelector('#fd-meet-registro');
+      const notasEl = meetForm.querySelector('#fd-meet-notas');
+      if (fechaEl) fechaEl.value = '';
+      if (registroEl) registroEl.checked = false;
+      if (notasEl) notasEl.value = '';
+    }
+
+    const titleEl = meetForm.querySelector('.fd-meet-form-title');
+    if (titleEl) {
+      if (authRequired) titleEl.textContent = 'Acceso restringido';
+      titleEl.tabIndex = authRequired ? -1 : 0;
+      titleEl.title = authRequired ? '' : 'Clic para editar';
+    }
+  }
+
   async function saveMeetingFormToAirtable(meetForm) {
     if (!meetForm) return;
     const guardarBtn = meetForm.querySelector('#fd-meet-guardar');
@@ -532,6 +597,11 @@
       guardarBtn.style.cursor = '';
       guardarBtn.textContent = 'Guardar';
     };
+
+    if (meetForm.dataset.authRequired === 'true') {
+      setMeetSaveMessage('Inicia sesion con Google para ver y guardar los datos de esta reunion.', 'warning');
+      return;
+    }
 
     const recordId = meetForm.dataset.airtableRecordId;
     if (!recordId) {
@@ -581,7 +651,7 @@
     } finally {
       const messageEl = meetForm.querySelector('#fd-meet-save-message');
       if (messageEl?.textContent === 'Guardando cambios de la reunion...') {
-        setMeetSaveMessage('No se pudieron guardar los cambios. Revisa la conexion, el backend local o la sesion de Google.', 'error');
+        setMeetSaveMessage('No se pudieron guardar los cambios. Revisa la conexion, el servidor local o la sesion de Google.', 'error');
       }
       stopLoadingState();
     }
@@ -779,6 +849,23 @@
     bookButton.disabled = !enabled;
   }
 
+  function syncPanelContactEmail(panel, email) {
+    if (!panel) return;
+    const cleanEmail = String(email || '').trim();
+    panel.dataset.currentEmail = cleanEmail;
+
+    const emailEl = panel.querySelector('#fd-contact-email');
+    if (emailEl) {
+      emailEl.querySelector('.fd-contact-value').textContent = cleanEmail || 'N/A';
+      emailEl.setAttribute('data-copy', cleanEmail);
+    }
+
+    const manualEmailInput = panel.querySelector('#booking-email');
+    if (manualEmailInput && manualEmailInput.value !== cleanEmail) {
+      manualEmailInput.value = cleanEmail;
+    }
+  }
+
   function getStatusBadgeClass(status) {
     const s = (status || '').toLowerCase();
     if (s === 'realizada') return 'fd-badge fd-badge--green';
@@ -840,6 +927,8 @@
       emailEl.querySelector('.fd-contact-value').textContent = '-';
       emailEl.setAttribute('data-copy', '');
     }
+    const manualEmailInput = panel.querySelector('#booking-email');
+    if (manualEmailInput) manualEmailInput.value = '';
 
     const countEl = panel.querySelector('#fd-stat-count');
     const dateEl = panel.querySelector('#fd-stat-date');
@@ -849,8 +938,8 @@
     if (dateEl) dateEl.textContent = '-';
     if (statusEl) statusEl.innerHTML = '<span class="fd-badge fd-badge--gray">Bloqueado</span>';
     if (noteEl) {
-      noteEl.textContent = message;
-      noteEl.classList.remove('is-empty');
+      noteEl.textContent = '-';
+      noteEl.classList.add('is-empty');
     }
 
     const panelMeetingsContainer = panel.querySelector('.panel-section-summary > div');
@@ -959,7 +1048,6 @@
     const userColorStyle = getUserColorStyle(usuario?.color);
 
     if (isManagerRole(role)) {
-      const puedeAtender = usuario?.puede_crear_meets === true;
       container.innerHTML = `
         <div class="fd-user-status">
           <div class="fd-user-identity">
@@ -971,17 +1059,12 @@
           </div>
           <div class="fd-badges">
             <span class="fd-badge fd-user-color-badge" ${userColorStyle ? `style="${userColorStyle}"` : ''}>Gerente</span>
-            ${puedeAtender
-              ? '<span class="fd-badge fd-badge--green">Atiende reuniones</span>'
-              : '<span class="fd-badge fd-badge--gray">No atiende reuniones</span>'
-            }
           </div>
           <button type="button" id="fd-login-google-btn">Cambiar cuenta Google</button>
         </div>
       `;
     } else {
       const recibe = usuario?.puede_recibir_reuniones;
-      const meet = usuario?.puede_crear_meets;
       container.innerHTML = `
         <div class="fd-user-status">
           <div class="fd-user-identity">
@@ -994,7 +1077,6 @@
           <div class="fd-badges">
             <span class="fd-badge fd-user-color-badge" ${userColorStyle ? `style="${userColorStyle}"` : ''}>Vendedora</span>
             <span class="fd-badge ${recibe ? 'fd-badge--green' : 'fd-badge--gray'}">${recibe ? 'Recibe reuniones' : 'No recibe'}</span>
-            ${meet ? '<span class="fd-badge fd-badge--blue">Meet</span>' : ''}
           </div>
           <button type="button" id="fd-login-google-btn">Cambiar cuenta Google</button>
         </div>
@@ -1208,7 +1290,7 @@
 
     const normalizedRole = normalizeUserRole(role);
     const canManageOwnAvailability = normalizedRole === 'vendedora' || normalizedRole === 'gerente';
-    const canUseCustomWorkHours = normalizedRole === 'vendedora' || (normalizedRole === 'gerente' && usuario?.puede_crear_meets === true);
+    const canUseCustomWorkHours = normalizedRole === 'vendedora' || normalizedRole === 'gerente';
     if (!currentUser?.authenticated || !canManageOwnAvailability || !usuario?.recordId) {
       container.innerHTML = '';
       return;
@@ -1465,6 +1547,14 @@
     main.style.display = '';
   }
 
+  function getSellerAuthHelpText(reason) {
+    if (reason === 'inactive_auth_user') return 'La cuenta existe en AuthUsuarios, pero esta desactivada.';
+    if (reason === 'missing_refresh_token') return 'Debe volver a iniciar sesion con Google para renovar permisos.';
+    if (reason === 'missing_seller_email') return 'Carga un correo en Usuarios para poder cruzarlo con AuthUsuarios.';
+    if (reason === 'missing_tokens') return 'La cuenta no tiene tokens completos de Google Calendar.';
+    return 'El usuario debe iniciar sesion con Google desde la extension.';
+  }
+
   async function loadSellersIntoView(view) {
     const panel = view?.closest('#custom-side-panel');
     if (!isManagerRole(getPanelRole(panel))) return;
@@ -1480,28 +1570,136 @@
         return;
       }
 
-      listEl.innerHTML = sellers.map(seller => {
+      const readyCount = sellers.filter((seller) => seller.auth?.ready).length;
+      const pendingCount = sellers.length - readyCount;
+      const readinessHTML = `
+        <div class="fd-team-readiness ${pendingCount ? 'fd-team-readiness--warning' : 'fd-team-readiness--ready'}">
+          <div class="fd-team-readiness-title">Estado de autorizacion Google</div>
+          <div class="fd-team-readiness-text">${readyCount}/${sellers.length} usuarios listos para Calendar${pendingCount ? `. Faltan ${pendingCount}.` : '.'}</div>
+        </div>
+      `;
+
+      listEl.innerHTML = readinessHTML + sellers.map(seller => {
         const activa = seller.activa;
         const recibe = seller.puede_recibir_reuniones;
+        const auth = seller.auth || {};
+        const authReady = auth.ready === true;
         const rid = escapeHtml(seller.recordId || '');
         const sellerColorStyle = getUserColorStyle(seller.color);
         return `
-          <div class="fd-seller-card" ${sellerColorStyle ? `style="${sellerColorStyle}"` : ''}>
+          <div class="fd-seller-card" data-seller-id="${rid}" ${sellerColorStyle ? `style="${sellerColorStyle}"` : ''}>
             <div class="fd-seller-top">
               <span class="fd-seller-name fd-user-color-text">${escapeHtml(seller.nombre || seller.correo)}</span>
               <div class="fd-badges">
                 <span class="fd-badge ${activa ? 'fd-badge--green' : 'fd-badge--gray'}">${activa ? 'Activa' : 'Inactiva'}</span>
                 <span class="fd-badge ${recibe ? 'fd-badge--blue' : 'fd-badge--gray'}">${recibe ? 'Recibe reuniones' : 'Reuniones pausadas'}</span>
+                <span class="fd-badge ${authReady ? 'fd-badge--green' : 'fd-badge--amber'}">${escapeHtml(auth.label || 'Falta autorizar Google')}</span>
               </div>
             </div>
-            <div class="fd-seller-email">${escapeHtml(seller.correo || '')}</div>
+            <div class="fd-seller-email">${escapeHtml(seller.correo || '')}${seller.telefono ? ` · ${escapeHtml(seller.telefono)}` : ''}</div>
+            ${authReady ? '' : `<div class="fd-seller-auth-warning">${escapeHtml(getSellerAuthHelpText(auth.reason))}</div>`}
             <div class="fd-seller-actions">
+              <button type="button" class="fd-seller-btn fd-seller-edit" data-id="${rid}">Editar</button>
               <button type="button" class="fd-seller-btn fd-seller-toggle" data-id="${rid}" data-action="toggle-active">${activa ? 'Desactivar usuaria' : 'Activar usuaria'}</button>
               <button type="button" class="fd-seller-btn fd-seller-toggle" data-id="${rid}" data-action="toggle-receives">${recibe ? 'Pausar reuniones' : 'Recibir reuniones'}</button>
             </div>
+            <form class="fd-seller-edit-form" data-id="${rid}" hidden>
+              <input name="id" type="text" placeholder="ID" value="${escapeHtml(seller.id || '')}" />
+              <input name="nombre" type="text" placeholder="Nombre" value="${escapeHtml(seller.nombre || '')}" />
+              <input name="correo" type="email" placeholder="Correo" value="${escapeHtml(seller.correo || '')}" />
+              <input name="telefono" type="text" placeholder="Telefono" value="${escapeHtml(seller.telefono || '')}" />
+              <select name="rol">
+                <option value="Vendedora" ${seller.rol === 'Vendedora' ? 'selected' : ''}>Vendedora</option>
+                <option value="Gerente" ${seller.rol === 'Gerente' ? 'selected' : ''}>Gerente</option>
+              </select>
+              <label><input name="activa" type="checkbox" ${activa ? 'checked' : ''} /> Activa</label>
+              <label><input name="puede_recibir_reuniones" type="checkbox" ${recibe ? 'checked' : ''} /> Puede recibir reuniones</label>
+              <div class="fd-seller-edit-actions">
+                <button type="submit" class="fd-seller-btn">Guardar</button>
+                <button type="button" class="fd-seller-btn fd-seller-cancel">Cancelar</button>
+                <button type="button" class="fd-seller-btn fd-seller-delete" data-id="${rid}">Eliminar/desactivar</button>
+              </div>
+              <div class="fd-seller-edit-msg fd-msg" style="display:none;"></div>
+            </form>
           </div>
         `;
       }).join('');
+
+      listEl.querySelectorAll('.fd-seller-edit').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const card = btn.closest('.fd-seller-card');
+          const form = card?.querySelector('.fd-seller-edit-form');
+          if (form) form.hidden = !form.hidden;
+        });
+      });
+
+      listEl.querySelectorAll('.fd-seller-cancel').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const form = btn.closest('.fd-seller-edit-form');
+          if (form) form.hidden = true;
+        });
+      });
+
+      listEl.querySelectorAll('.fd-seller-edit-form').forEach(form => {
+        form.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const id = form.dataset.id;
+          const msgEl = form.querySelector('.fd-seller-edit-msg');
+          const submitBtn = form.querySelector('button[type="submit"]');
+          const data = new FormData(form);
+          const body = {
+            id: String(data.get('id') || '').trim(),
+            nombre: String(data.get('nombre') || '').trim(),
+            correo: String(data.get('correo') || '').trim(),
+            telefono: String(data.get('telefono') || '').trim(),
+            rol: String(data.get('rol') || 'Vendedora').trim(),
+            activa: data.has('activa'),
+            puede_recibir_reuniones: data.has('puede_recibir_reuniones')
+          };
+
+          if (!body.id || !body.nombre || !body.correo) {
+            setAddSellerMessage(msgEl, 'ID, nombre y correo son obligatorios.', true);
+            return;
+          }
+
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Guardando...';
+          setAddSellerMessage(msgEl, '', false);
+
+          try {
+            await fetchJson(`${API_BASE_URL}/sellers/${id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body)
+            });
+            await loadSellersIntoView(view);
+          } catch (err) {
+            console.error('Extension FD: error al editar vendedora', err);
+            setAddSellerMessage(msgEl, 'No se pudo guardar la vendedora.', true);
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Guardar';
+          }
+        });
+      });
+
+      listEl.querySelectorAll('.fd-seller-delete').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.id;
+          if (!id) return;
+
+          btn.disabled = true;
+          btn.textContent = 'Desactivando...';
+
+          try {
+            await fetchJson(`${API_BASE_URL}/sellers/${id}`, { method: 'DELETE' });
+            await loadSellersIntoView(view);
+          } catch (err) {
+            console.error('Extension FD: error al desactivar vendedora', err);
+            btn.disabled = false;
+            btn.textContent = 'Eliminar/desactivar';
+          }
+        });
+      });
 
       listEl.querySelectorAll('.fd-seller-toggle').forEach(btn => {
         btn.addEventListener('click', async () => {
@@ -1577,6 +1775,7 @@
           <input id="fd-new-seller-nombre" type="text" placeholder="Nombre completo" />
           <input id="fd-new-seller-correo" type="email" placeholder="Correo electronico" />
           <input id="fd-new-seller-telefono" type="text" placeholder="Telefono (opcional)" />
+          <label><input id="fd-new-seller-recibe" type="checkbox" checked /> Puede recibir reuniones</label>
           <button type="button" id="fd-add-seller-btn" class="fd-add-seller-btn">Agregar vendedora</button>
           <div id="fd-add-seller-msg" class="fd-msg" style="display:none;"></div>
         </div>
@@ -1594,6 +1793,7 @@
       const nombreInput = view.querySelector('#fd-new-seller-nombre');
       const correoInput = view.querySelector('#fd-new-seller-correo');
       const telefonoInput = view.querySelector('#fd-new-seller-telefono');
+      const recibeInput = view.querySelector('#fd-new-seller-recibe');
       const msgEl = view.querySelector('#fd-add-seller-msg');
       const addBtn = view.querySelector('#fd-add-seller-btn');
 
@@ -1615,13 +1815,20 @@
         await fetchJson(`${API_BASE_URL}/sellers`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id, nombre, correo, telefono })
+          body: JSON.stringify({
+            id,
+            nombre,
+            correo,
+            telefono,
+            puede_recibir_reuniones: recibeInput?.checked === true
+          })
         });
 
         if (idInput) idInput.value = '';
         if (nombreInput) nombreInput.value = '';
         if (correoInput) correoInput.value = '';
         if (telefonoInput) telefonoInput.value = '';
+        if (recibeInput) recibeInput.checked = true;
         setAddSellerMessage(msgEl, 'Vendedora agregada correctamente.', false);
         await loadSellersIntoView(view);
       } catch (err) {
@@ -1685,7 +1892,7 @@
       panel.dataset.currentUserEmail = '';
       panel.dataset.currentUserAuthenticated = 'false';
       configureRoleTabs(panel, '');
-      clearProtectedPanelData(panel, 'No se pudo verificar la sesion. Revisa que el backend este activo.');
+      clearProtectedPanelData(panel, 'No se pudo verificar la sesion. Revisa que el servidor este activo.');
       if (container) {
         container.innerHTML = `
           <div class="fd-user-status fd-user-status--warning">
@@ -1693,7 +1900,7 @@
               <div class="fd-user-avatar fd-user-avatar--warning">!</div>
               <div class="fd-user-info">
                 <div class="fd-user-name">No se pudo cargar la sesion</div>
-                <div class="fd-user-email">Revisa que el backend este activo.</div>
+                <div class="fd-user-email">Revisa que el servidor este activo.</div>
               </div>
             </div>
           </div>
@@ -1891,6 +2098,7 @@
 
     const dateInput = panel.querySelector('#availability-date');
     const durationSelect = panel.querySelector('#availability-duration');
+    const emailInput = panel.querySelector('#booking-email');
     const actionButton = panel.querySelector('#availability-check-btn');
     const bookButton = panel.querySelector('#booking-create-btn');
     const results = panel.querySelector('#availability-results');
@@ -2012,6 +2220,11 @@
       setBookingButtonState(panel, false);
     });
 
+    emailInput?.addEventListener('input', () => {
+      syncPanelContactEmail(panel, emailInput.value);
+      setBookingMessage(panel, '');
+    });
+
     bookButton?.addEventListener('click', async () => {
       if (!isPanelAuthenticated(panel)) {
         clearProtectedPanelData(panel);
@@ -2023,7 +2236,8 @@
 
       const telefono = panel.dataset.currentPhone || '';
       const nombre = panel.dataset.currentName || '';
-      const email = panel.dataset.currentEmail || '';
+      const email = String(emailInput?.value || panel.dataset.currentEmail || '').trim();
+      syncPanelContactEmail(panel, email);
       const date = dateInput?.value || '';
       const duration = durationSelect?.value || '30';
       const time = panel.dataset.selectedBookingTime || '';
@@ -2145,9 +2359,9 @@
     }
 
     if (panel && fields) {
-      panel.dataset.currentPhone = fields['Telefono'] || panel.dataset.currentPhone || '';
-      panel.dataset.currentName = fields['Nombre'] || panel.dataset.currentName || '';
-      panel.dataset.currentEmail = fields['Correo'] || panel.dataset.currentEmail || '';
+      panel.dataset.currentPhone = fields['Telefono'] || '';
+      panel.dataset.currentName = fields['Nombre'] || '';
+      syncPanelContactEmail(panel, fields['Correo'] || '');
 
       if (!panel.dataset.currentEmail) {
         setBookingMessage(panel, 'Este cliente no tiene correo cargado. Agrega uno para poder agendar.', true);
@@ -2213,8 +2427,7 @@
     const emailEl = panel.querySelector('#fd-contact-email');
     if (emailEl) {
       const v = fields['Correo'] || '';
-      emailEl.querySelector('.fd-contact-value').textContent = v || 'N/A';
-      emailEl.setAttribute('data-copy', v);
+      syncPanelContactEmail(panel, v);
     }
   }
 
@@ -2326,9 +2539,10 @@
           <div class="nota-valor is-empty" id="fd-stat-note">-</div>
         </div>
         <div class="separator"></div>
-        <div class="availability-section">
+          <div class="availability-section">
           <div class="fd-section-title">Agendar reunion</div>
           <div class="fd-form-stack">
+            <input id="booking-email" type="email" placeholder="Correo del cliente" autocomplete="email" />
             <input id="availability-date" type="date" />
             <select id="availability-duration">
               <option value="15">15 min</option>
@@ -2469,6 +2683,7 @@
 
     titleEl.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (meetForm.dataset.authRequired === 'true') return;
       if (titleEl.querySelector('input')) return;
 
       const previous = titleEl.textContent.trim();
@@ -2559,7 +2774,7 @@
 
     const vendedoras = ['FLORENCIA', 'SILVINA', 'ITATI', 'SARITA', 'ORNELLA', 'LIZ', 'INES', 'Milbia'];
     const vendedoraOptions = vendedoras.map(v => `<option value="${v}">${v}</option>`).join('');
-    const estadoOptions = ['Realizada', 'Cancelada', 'PENDIENTE']
+    const estadoOptions = ['Realizada', 'Cancelada', 'Pendiente']
       .map(v => `<option value="${v}">${v}</option>`).join('');
 
     meetForm = document.createElement('div');
@@ -2720,6 +2935,21 @@
         
         if (isOpen) {
           const phone = getRespondPagePhone();
+          const respondName = getRespondPageName();
+          const respondEmail = getRespondPageEmail();
+          const respondContactFields = {
+            Nombre: respondName || (phone ? `Cliente ${phone}` : ''),
+            Telefono: phone || '',
+            Correo: respondEmail || ''
+          };
+          panelOrForm.dataset.currentPhone = phone || '';
+          panelOrForm.dataset.currentName = respondContactFields.Nombre;
+          const phoneEl = panelOrForm.querySelector('#fd-contact-phone');
+          if (phoneEl) {
+            phoneEl.querySelector('.fd-contact-value').textContent = phone || '-';
+            phoneEl.setAttribute('data-copy', phone || '');
+          }
+          syncPanelContactEmail(panelOrForm, respondEmail);
           if (!phone) {
             console.warn('Extension FD: no se encontró un número tras "para:" en un div con clases dls-whitespace-nowrap dls-truncate');
             refreshCurrentUser(panelOrForm);
@@ -2731,7 +2961,13 @@
               }
               const fields = await fetchContactData(phone);
               const meetings = await fetchMeetingsData(phone);
-              if (fields) updatePanelWithData(fields, meetings);
+              updatePanelWithData({
+                ...respondContactFields,
+                ...(fields || {}),
+                Telefono: fields?.Telefono || respondContactFields.Telefono,
+                Nombre: fields?.Nombre || respondContactFields.Nombre,
+                Correo: fields?.Correo || respondContactFields.Correo
+              }, meetings);
             })();
           }
         }
@@ -2745,10 +2981,10 @@
           if (isOpening) {
             meetForm.style.right = '0px';
             meetForm.dataset.airtableRecordId = '';
-            meetForm.dataset.authRequired = 'false';
+            setMeetFormAuthRequired(meetForm, false);
             const meetLink = getCurrentMeetLinkForAirtable();
             fetchMeetingRecordByMeetLink(meetLink).then(record => {
-              if (record?.authRequired) meetForm.dataset.authRequired = 'true';
+              setMeetFormAuthRequired(meetForm, Boolean(record?.authRequired));
               if (record?.id) meetForm.dataset.airtableRecordId = record.id;
               if (record?.fields) applyMeetingFieldsToMeetForm(meetForm, record.fields);
               const messageEl = meetForm.querySelector('#fd-meet-save-message');

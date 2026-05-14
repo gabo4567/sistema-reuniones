@@ -37,8 +37,7 @@ function mapRecordToSeller(record) {
     color: fields.Color || '',
     rol: normalizeRole(fields.Rol),
     activa: fields.Activa === true,
-    puede_recibir_reuniones: fields['Puede recibir reuniones'] === true,
-    puede_crear_meets: fields['Puede crear meets'] === true
+    puede_recibir_reuniones: fields['Puede recibir reuniones'] === true
   };
 }
 
@@ -90,10 +89,6 @@ function buildSellerFields(data = {}, { partial = false } = {}) {
       ['puede_recibir_reuniones', 'Puede recibir reuniones'],
       true
     ) !== false;
-  }
-
-  if (!partial || hasAny(data, ['puede_crear_meets', 'Puede crear meets'])) {
-    fields['Puede crear meets'] = getFirstValue(data, ['puede_crear_meets', 'Puede crear meets'], true) !== false;
   }
 
   return fields;

@@ -3,6 +3,10 @@ const { saveUser } = require('./users.service');
 
 const TIMEZONE = 'America/Argentina/Buenos_Aires';
 const UTC_OFFSET = '-03:00';
+const DEFAULT_EVENT_REMINDERS = [
+  { method: 'email', minutes: 24 * 60 },
+  { method: 'popup', minutes: 30 }
+];
 
 function createOAuthClient() {
   return new google.auth.OAuth2(
@@ -126,7 +130,7 @@ async function getCalendarClient(user) {
   return google.calendar({ version: 'v3', auth: oauth2Client });
 }
 
-async function createMeetEvent(user, { summary, description, startDateTime, endDateTime, attendees = [] }) {
+async function createMeetEvent(user, { summary, description, startDateTime, endDateTime, attendees = [], reminders = DEFAULT_EVENT_REMINDERS }) {
   const calendar = await getCalendarClient(user);
   const response = await calendar.events.insert({
     calendarId: 'primary',
@@ -144,6 +148,10 @@ async function createMeetEvent(user, { summary, description, startDateTime, endD
         timeZone: TIMEZONE
       },
       attendees,
+      reminders: {
+        useDefault: false,
+        overrides: reminders
+      },
       conferenceData: {
         createRequest: {
           requestId: `extension-fd-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,

@@ -254,7 +254,6 @@ function renderSellersAdminPage() {
                   <div class="checks">
                     <label><input name="activa" type="checkbox" checked /> Activa</label>
                     <label><input name="puede_recibir_reuniones" type="checkbox" checked /> Puede recibir reuniones</label>
-                    <label><input name="puede_crear_meets" type="checkbox" checked /> Puede crear meets</label>
                   </div>
                   <div class="actions">
                     <button class="primary" type="submit">Crear</button>
@@ -393,13 +392,11 @@ function renderSellersAdminPage() {
                 '<td>' + seller.rol + '</td>' +
                 '<td>' +
                   'Activa: ' + yesNo(seller.activa) + '<br>' +
-                  'Recibe: ' + yesNo(seller.puede_recibir_reuniones) + '<br>' +
-                  'Meet: ' + yesNo(seller.puede_crear_meets) +
+                  'Recibe: ' + yesNo(seller.puede_recibir_reuniones) +
                 '</td>' +
                 '<td class="actions">' +
                   '<button type="button" data-action="toggle-active" data-id="' + seller.recordId + '">' + (seller.activa ? 'Desactivar' : 'Activar') + '</button>' +
                   '<button type="button" data-action="toggle-receives" data-id="' + seller.recordId + '">' + (seller.puede_recibir_reuniones ? 'No recibe' : 'Recibe') + '</button>' +
-                  '<button type="button" data-action="toggle-meets" data-id="' + seller.recordId + '">' + (seller.puede_crear_meets ? 'Sin meet' : 'Con meet') + '</button>' +
                 '</td>' +
               '</tr>';
             }).join('');
@@ -453,8 +450,7 @@ function renderSellersAdminPage() {
               correo: formData.get('correo'),
               rol: formData.get('rol'),
               activa: formData.has('activa'),
-              puede_recibir_reuniones: formData.has('puede_recibir_reuniones'),
-              puede_crear_meets: formData.has('puede_crear_meets')
+              puede_recibir_reuniones: formData.has('puede_recibir_reuniones')
             };
 
             try {
@@ -466,7 +462,6 @@ function renderSellersAdminPage() {
               form.reset();
               form.querySelector('[name="activa"]').checked = true;
               form.querySelector('[name="puede_recibir_reuniones"]').checked = true;
-              form.querySelector('[name="puede_crear_meets"]').checked = true;
               await loadAll();
               showStatus('Vendedora creada.');
             } catch (error) {
@@ -517,9 +512,7 @@ function renderSellersAdminPage() {
                   activa: !seller.activa,
                   puede_recibir_reuniones: seller.activa ? false : seller.puede_recibir_reuniones
                 }
-              : button.dataset.action === 'toggle-receives'
-              ? { puede_recibir_reuniones: !seller.puede_recibir_reuniones }
-              : { puede_crear_meets: !seller.puede_crear_meets };
+              : { puede_recibir_reuniones: !seller.puede_recibir_reuniones };
 
             try {
               await api('/api/sellers/' + seller.recordId, {

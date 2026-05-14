@@ -1,5 +1,5 @@
 const express = require('express');
-const { getActiveUsers, getAuthUserByEmail } = require('../services/users.service');
+const { getActiveUsers, getAuthUserByEmail, listAuthUsers } = require('../services/users.service');
 const {
   createSeller,
   deactivateSeller,
@@ -20,6 +20,41 @@ function normalizeEmail(email) {
 
 function normalizeValue(value) {
   return String(value || '').trim().toLowerCase();
+}
+
+function buildSellerAuthStatus(seller, authUser) {
+  const hasAccessToken = Boolean(authUser?.access_token);
+  const hasRefreshToken = Boolean(authUser?.refresh_token);
+  const isActive = authUser?.activo === true;
+  const isReady = Boolean(authUser && isActive && hasAccessToken && hasRefreshToken);
+
+  let label = 'Falta autorizar Google';
+  let reason = authUser ? 'missing_tokens' : 'missing_auth_user';
+
+  if (isReady) {
+    label = 'Lista para Calendar';
+    reason = 'ready';
+  } else if (authUser && !isActive) {
+    label = 'Google desactivado';
+    reason = 'inactive_auth_user';
+  } else if (authUser && hasAccessToken && !hasRefreshToken) {
+    label = 'Debe reconectar Google';
+    reason = 'missing_refresh_token';
+  } else if (!seller?.correo) {
+    label = 'Falta correo';
+    reason = 'missing_seller_email';
+  }
+
+  return {
+    ready: isReady,
+    label,
+    reason,
+    authRecordId: authUser?.recordId || '',
+    active: isActive,
+    hasAccessToken,
+    hasRefreshToken,
+    expiry_date: authUser?.expiry_date || null
+  };
 }
 
 function validateCreateSeller(body = {}) {
@@ -67,16 +102,22 @@ function hasEditableFields(body = {}) {
     'activa',
     'Activa',
     'puede_recibir_reuniones',
-    'Puede recibir reuniones',
-    'puede_crear_meets',
-    'Puede crear meets'
+    'Puede recibir reuniones'
   ].some((field) => Object.prototype.hasOwnProperty.call(body, field));
 }
 
 router.get('/sellers', async (_req, res) => {
   try {
-    const sellers = await listSellers();
-    return res.json(sellers);
+    const [sellers, authUsers] = await Promise.all([
+      listSellers(),
+      listAuthUsers()
+    ]);
+    const authByEmail = new Map(authUsers.map((user) => [normalizeEmail(user.email), user]));
+
+    return res.json(sellers.map((seller) => ({
+      ...seller,
+      auth: buildSellerAuthStatus(seller, authByEmail.get(normalizeEmail(seller.correo)))
+    })));
   } catch (error) {
     return res.status(500).json({
       error: 'Failed to list sellers',
