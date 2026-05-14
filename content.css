@@ -755,9 +755,10 @@
   }
 
   #custom-side-panel .fd-seller-btn:hover:not(:disabled) {
-    background-color: #EEF1F6;
+    background-color: #DCEBFF;
     color: #111827 !important;
-    border-color: rgba(17,24,39,0.40);
+    border-color: #0B57D0;
+    box-shadow: 0 1px 4px rgba(11,87,208,0.22);
   }
 
   #custom-side-panel .fd-add-seller-btn {
@@ -1946,7 +1947,7 @@
 
 /* ─── SELLER CARDS ────────────────────────────────────────────────────────── */
 .fd-seller-card {
-  padding: 12px;
+  padding: 14px;
   border-radius: var(--fd-radius-md);
   border: 1px solid var(--fd-border-subtle);
   background: var(--fd-bg-elevated);
@@ -1991,40 +1992,52 @@
 .fd-team-readiness-text,
 .fd-seller-auth-warning {
   color: var(--fd-text-secondary);
-  font-size: 11px;
-  line-height: 1.4;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .fd-seller-auth-warning {
-  margin: -4px 0 9px;
+  margin: 0 0 10px;
+}
+
+.fd-seller-card .fd-badges {
+  flex: 0 1 250px;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.fd-seller-card .fd-badge {
+  padding: 4px 9px;
+  font-size: 12px;
+  line-height: 1.2;
 }
 
 .fd-seller-top {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 3px;
+  gap: 10px;
+  margin-bottom: 7px;
 }
 
 .fd-seller-name {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   color: var(--fd-text-primary);
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.25;
 }
 
 .fd-seller-email {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--fd-text-tertiary);
-  margin-bottom: 10px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  margin-bottom: 8px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.35;
 }
 
 .fd-seller-actions {
@@ -2035,15 +2048,15 @@
 
 .fd-seller-btn {
   flex: 1;
-  min-width: 72px;
-  padding: 5px 8px;
+  min-width: 104px;
+  padding: 8px 10px;
   border-radius: var(--fd-radius-sm);
   border: 1px solid var(--fd-border-default);
   background: var(--fd-bg-card);
   color: var(--fd-text-secondary);
   font: inherit;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 700;
   cursor: pointer;
   text-align: center;
   transition: background var(--fd-transition), border-color var(--fd-transition), color var(--fd-transition);
