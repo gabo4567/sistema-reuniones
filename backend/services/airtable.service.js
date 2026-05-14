@@ -152,6 +152,27 @@ async function getMeetingByMeetLink(meetUrl) {
   return response.data.records?.[0] || null;
 }
 
+async function listMeetingsByDateRange(startIso, endIso) {
+  const formula = `AND({Fecha},IS_AFTER({Fecha},DATETIME_PARSE("${escapeFormulaValue(startIso)}")),IS_BEFORE({Fecha},DATETIME_PARSE("${escapeFormulaValue(endIso)}")),NOT(LOWER({ESTADO}&"")="cancelada"))`;
+  const records = [];
+  let offset = '';
+
+  do {
+    const response = await airtableClient.get(`/${MEETINGS_TABLE_NAME}`, {
+      params: {
+        filterByFormula: formula,
+        sort: [{ field: 'Fecha', direction: 'asc' }],
+        ...(offset ? { offset } : {})
+      }
+    });
+
+    records.push(...(response.data.records || []));
+    offset = response.data.offset || '';
+  } while (offset);
+
+  return records;
+}
+
 async function updateMeeting(recordId, data) {
   const response = await airtableClient.patch(`/${MEETINGS_TABLE_NAME}`, {
     records: [
@@ -183,6 +204,7 @@ module.exports = {
   getContactByPhone,
   getMeetingsByPhone,
   getMeetingByMeetLink,
+  listMeetingsByDateRange,
   createMeeting,
   updateMeeting
 };

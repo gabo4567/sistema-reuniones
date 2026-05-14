@@ -205,6 +205,7 @@ function generateSlots(date, duration) {
   }
 
   const slots = [];
+  const slotStep = 15;
   let current = workingHours.start;
 
   while (true) {
@@ -223,7 +224,7 @@ function generateSlots(date, duration) {
       end: slotEnd
     });
 
-    current = next;
+    current = addMinutesToTime(current, slotStep);
   }
 
   return slots;

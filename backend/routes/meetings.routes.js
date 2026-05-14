@@ -5,6 +5,7 @@ const {
   getContactByPhone,
   getMeetingsByPhone,
   getMeetingByMeetLink,
+  listMeetingsByDateRange,
   createMeeting,
   updateMeeting
 } = require('../services/airtable.service');
@@ -308,6 +309,171 @@ function normalizeSellerName(value) {
   const normalizedValue = String(value || '').toLowerCase();
 
   return sellerOptions.find((seller) => normalizedValue.includes(seller.toLowerCase())) || '';
+}
+
+function normalizeMeetingPhase(value) {
+  const match = String(value || '').match(/\bfase\s*([12])\b/i);
+  return match ? `FASE ${match[1]}` : '';
+}
+
+function normalizeLookupValue(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function isManagerRoleValue(role) {
+  return normalizeLookupValue(role) === 'gerente';
+}
+
+function getEntryDisplayName(entry) {
+  return entry?.seller?.nombre || entry?.user?.email || '';
+}
+
+function buildAvailableSellerPayload(entry, load = {}) {
+  return {
+    recordId: entry.seller.recordId,
+    nombre: getEntryDisplayName(entry),
+    correo: entry.seller.correo || entry.user.email || '',
+    color: entry.seller.color || '',
+    load: {
+      todayCount: load.todayCount || 0,
+      weekCount: load.weekCount || 0,
+      nextMeetingTime: load.nextMeetingTime || ''
+    }
+  };
+}
+
+function findRequestedSellerEntry(entries, { assignedSellerRecordId = '', assignedSellerName = '' } = {}) {
+  const requestedRecordId = String(assignedSellerRecordId || '').trim();
+  const requestedName = normalizeLookupValue(assignedSellerName);
+
+  return entries.find((entry) => {
+    if (requestedRecordId && entry.seller.recordId === requestedRecordId) return true;
+    return requestedName && normalizeLookupValue(getEntryDisplayName(entry)) === requestedName;
+  }) || null;
+}
+
+async function isRequestingUserManager(req) {
+  if (isManagerRoleValue(req.authUser?.rol)) return true;
+
+  const email = req.authUser?.email || req.session.googleUserEmail || '';
+  if (!email) return false;
+
+  try {
+    const businessUser = await getBusinessUserByEmail(email);
+    return isManagerRoleValue(businessUser?.fields?.Rol);
+  } catch (error) {
+    console.error(`Error verificando rol gerente ${email}:`, error.response?.data || error.message);
+    return false;
+  }
+}
+
+function addDaysToDateString(date, daysToAdd) {
+  const baseDate = new Date(`${date}T12:00:00-03:00`);
+  baseDate.setUTCDate(baseDate.getUTCDate() + daysToAdd);
+  return baseDate.toISOString().slice(0, 10);
+}
+
+function getWeekBounds(date) {
+  const dayIndex = new Date(buildLocalDateTime(date, '00:00')).getUTCDay();
+  const daysFromMonday = (dayIndex + 6) % 7;
+  const start = addDaysToDateString(date, -daysFromMonday);
+  return {
+    start,
+    end: addDaysToDateString(start, 7)
+  };
+}
+
+function getRangeBounds(date) {
+  const week = getWeekBounds(date);
+  return {
+    dayStart: buildLocalDateTime(date, '00:00'),
+    dayEnd: buildLocalDateTime(addDaysToDateString(date, 1), '00:00'),
+    weekStart: buildLocalDateTime(week.start, '00:00'),
+    weekEnd: buildLocalDateTime(week.end, '00:00')
+  };
+}
+
+function isMeetingInRange(meetingDate, startDateTime, endDateTime) {
+  const value = new Date(meetingDate).getTime();
+  return !Number.isNaN(value) &&
+    value >= new Date(startDateTime).getTime() &&
+    value < new Date(endDateTime).getTime();
+}
+
+function buildSellerLoadMap(records = [], date) {
+  const { dayStart, dayEnd } = getRangeBounds(date);
+  const loadMap = new Map();
+
+  records.forEach((record) => {
+    const fields = record.fields || {};
+    const sellerName = normalizeLookupValue(fields.Vendedora);
+    const meetingDate = fields.Fecha;
+    if (!sellerName || !meetingDate) return;
+
+    const current = loadMap.get(sellerName) || {
+      todayCount: 0,
+      weekCount: 0,
+      nextMeetingTime: '',
+      todayMeetingTimes: []
+    };
+
+    current.weekCount += 1;
+    if (isMeetingInRange(meetingDate, dayStart, dayEnd)) {
+      current.todayCount += 1;
+      const time = new Date(meetingDate).toLocaleTimeString('es-AR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: TIMEZONE
+      });
+      current.todayMeetingTimes.push(time);
+      current.todayMeetingTimes.sort();
+      current.nextMeetingTime = current.todayMeetingTimes[0] || '';
+    }
+
+    loadMap.set(sellerName, current);
+  });
+
+  return loadMap;
+}
+
+function getSellerLoad(loadMap, entry, slotTime = '') {
+  const load = loadMap.get(normalizeLookupValue(getEntryDisplayName(entry))) || {
+    todayCount: 0,
+    weekCount: 0,
+    nextMeetingTime: '',
+    todayMeetingTimes: []
+  };
+
+  if (!slotTime) {
+    return load;
+  }
+
+  const nextMeetingTime = (load.todayMeetingTimes || []).find((time) => time > slotTime) || '';
+  return {
+    ...load,
+    nextMeetingTime
+  };
+}
+
+function compareSellerLoad(a, b, loadMap, slotTime = '') {
+  const loadA = getSellerLoad(loadMap, a, slotTime);
+  const loadB = getSellerLoad(loadMap, b, slotTime);
+  const todayDiff = loadA.todayCount - loadB.todayCount;
+  if (todayDiff !== 0) return todayDiff;
+
+  const weekDiff = loadA.weekCount - loadB.weekCount;
+  if (weekDiff !== 0) return weekDiff;
+
+  if (!loadA.nextMeetingTime && loadB.nextMeetingTime) return -1;
+  if (loadA.nextMeetingTime && !loadB.nextMeetingTime) return 1;
+  return String(loadB.nextMeetingTime || '').localeCompare(String(loadA.nextMeetingTime || ''));
+}
+
+async function getSellerLoadMapForDate(date) {
+  const { weekStart, weekEnd } = getRangeBounds(date);
+  const meetings = await listMeetingsByDateRange(weekStart, weekEnd);
+  return buildSellerLoadMap(meetings, date);
 }
 
 async function getSellerNameFromUser(user) {
@@ -851,8 +1017,10 @@ router.patch('/meetings/:id', async (req, res) => {
 });
 
 router.post('/book', async (req, res) => {
-  const { telefono, nombre, email, date, time, duration } = req.body || {};
+  const { telefono, nombre, email, date, time, duration, phase, assignedSellerRecordId, assignedSellerName } = req.body || {};
   const parsedDuration = Number(duration);
+  const hasRequestedSeller = Boolean(String(assignedSellerRecordId || assignedSellerName || '').trim());
+  const normalizedPhase = normalizeMeetingPhase(phase) || 'FASE 1';
 
   if (!telefono || !nombre || !email || !date || !time || !duration) {
     return res.status(400).json({
@@ -898,14 +1066,37 @@ router.post('/book', async (req, res) => {
       return res.status(409).json({ error: 'No active sellers available' });
     }
 
-    const assignedEntry = await findAvailableUser(eligibleSellers, startDateTime, endDateTime);
+    const sellerLoadMap = await getSellerLoadMapForDate(date);
+    let assignmentPool = eligibleSellers;
+
+    if (hasRequestedSeller) {
+      const canAssignSeller = await isRequestingUserManager(req);
+      if (!canAssignSeller) {
+        return res.status(403).json({ error: 'Only managers can choose the assigned seller' });
+      }
+
+      const requestedEntry = findRequestedSellerEntry(eligibleSellers, { assignedSellerRecordId, assignedSellerName });
+      if (!requestedEntry) {
+        return res.status(409).json({ error: 'Selected seller is not eligible for the requested slot' });
+      }
+
+      assignmentPool = [requestedEntry];
+    } else {
+      assignmentPool = [...eligibleSellers].sort((a, b) => compareSellerLoad(a, b, sellerLoadMap, time));
+    }
+
+    const assignedEntry = await findAvailableUser(assignmentPool, startDateTime, endDateTime);
     if (!assignedEntry) {
-      return res.status(409).json({ error: 'No users available for requested slot' });
+      return res.status(409).json({
+        error: hasRequestedSeller
+          ? 'Selected seller is not available for requested slot'
+          : 'No users available for requested slot'
+      });
     }
 
     const assignedUser = assignedEntry.user;
     const calendarEvent = await createMeetEvent(assignedUser, {
-      summary: `Reunion comercial - ${nombre}`,
+      summary: `Reunión - ${nombre}`,
       description: [
         `Cliente: ${nombre}`,
         `Telefono: ${telefono}`,
@@ -929,7 +1120,7 @@ router.post('/book', async (req, res) => {
       Nombre: nombre,
       'Tipo de Reunion': 'MEET',
       ESTADO: 'PENDIENTE',
-      'Fase del Momento': 'FASE 1',
+      'Fase del Momento': normalizedPhase,
       'Link de meet': meetLink,
       'Logramos Registro?': false,
       Fecha: startDateTime,
@@ -1042,7 +1233,21 @@ router.get('/availability', async (req, res) => {
       return res.json([]);
     }
 
-    const slots = getAvailableSlots(date, parsedDuration, busyByUser);
+    const sellerLoadMap = await getSellerLoadMapForDate(date);
+    const sellerByAvailabilityName = new Map(
+      operationalSellerEntries.map((entry) => [getEntryDisplayName(entry), entry])
+    );
+    const slots = getAvailableSlots(date, parsedDuration, busyByUser).map((slot) => ({
+      ...slot,
+      available_sellers: (slot.available_users || [])
+        .map((name) => sellerByAvailabilityName.get(name))
+        .filter(Boolean)
+        .sort((a, b) => compareSellerLoad(a, b, sellerLoadMap, slot.time))
+        .map((entry, index) => ({
+          ...buildAvailableSellerPayload(entry, getSellerLoad(sellerLoadMap, entry, slot.time)),
+          recommended: index === 0
+        }))
+    }));
 
     if (wantsHtml(req)) {
       return res.send(renderAvailabilityPage({

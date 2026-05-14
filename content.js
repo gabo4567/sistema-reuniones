@@ -220,6 +220,13 @@
       // Check availability for reschedule
       const checkBtn = e.target.closest('.reschedule-check-btn');
       if (checkBtn) {
+        const panel = document.getElementById('custom-side-panel');
+        if (!isPanelAuthenticated(panel)) {
+          clearProtectedPanelData(panel);
+          activatePanelTab(panel, 'summary');
+          return;
+        }
+
         const form = checkBtn.closest('.reschedule-form');
         const card = checkBtn.closest('.meet-card');
         const dateInput = form?.querySelector('.reschedule-date');
@@ -284,6 +291,13 @@
       // Confirm reschedule
       const confirmBtn = e.target.closest('.reschedule-confirm-btn');
       if (confirmBtn && !confirmBtn.disabled) {
+        const panel = document.getElementById('custom-side-panel');
+        if (!isPanelAuthenticated(panel)) {
+          clearProtectedPanelData(panel);
+          activatePanelTab(panel, 'summary');
+          return;
+        }
+
         const form = confirmBtn.closest('.reschedule-form');
         const card = confirmBtn.closest('.meet-card');
         const dateInput = form?.querySelector('.reschedule-date');
@@ -296,7 +310,6 @@
         const time = card?.dataset.rescheduleSelectedTime || '';
         const duration = durationSelect?.value || '30';
 
-        const panel = document.getElementById('custom-side-panel');
         const nombre = panel?.dataset.currentName || '';
         const telefono = panel?.dataset.currentPhone || '';
         const email = panel?.dataset.currentEmail || '';
@@ -338,6 +351,21 @@
     return null;
   }
 
+  function normalizeRespondPhase(value) {
+    const match = String(value || '').match(/\bfase\s*([12])\b/i);
+    return match ? `FASE ${match[1]}` : '';
+  }
+
+  function getRespondPagePhase() {
+    const nodes = document.querySelectorAll('div.dls-whitespace-nowrap.dls-truncate');
+    for (const el of nodes) {
+      const phase = normalizeRespondPhase(el.textContent || '');
+      if (phase) return phase;
+    }
+
+    return '';
+  }
+
   function getStoredAuthEmail() {
     if (fdAuthEmail) return Promise.resolve(fdAuthEmail);
 
@@ -375,7 +403,9 @@
     });
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
+      const error = new Error(`HTTP ${response.status}: ${errorText}`);
+      error.status = response.status;
+      throw error;
     }
 
     return response.json();
@@ -413,6 +443,9 @@
       const url = `${API_BASE_URL}/meetings/by-link?meetUrl=${encodeURIComponent(meetUrl)}`;
       return await fetchJson(url);
     } catch (error) {
+      if (error?.status === 401) {
+        return { authRequired: true };
+      }
       console.error('Extension FD: error al obtener reunión por Link de meet', error);
     }
     return null;
@@ -466,9 +499,18 @@
     const guardarBtn = meetForm.querySelector('#fd-meet-guardar');
     if (guardarBtn?.dataset.loading === 'true') return;
 
+    const setMeetSaveMessage = (message, type = 'info') => {
+      const messageEl = meetForm.querySelector('#fd-meet-save-message');
+      if (!messageEl) return;
+      messageEl.textContent = message || '';
+      messageEl.style.display = message ? 'block' : 'none';
+      messageEl.className = `fd-meet-save-message fd-meet-save-message--${type}`;
+    };
+
     let loadingInterval = null;
     const startLoadingState = () => {
       if (!guardarBtn) return;
+      setMeetSaveMessage('Guardando cambios de la reunion...', 'info');
       guardarBtn.dataset.loading = 'true';
       guardarBtn.disabled = true;
       guardarBtn.style.opacity = '0.8';
@@ -494,6 +536,11 @@
     const recordId = meetForm.dataset.airtableRecordId;
     if (!recordId) {
       console.warn('Extension FD: no hay id de record para guardar.');
+      if (meetForm.dataset.authRequired === 'true') {
+        setMeetSaveMessage('Inicia sesión con Google para ver y guardar los datos de esta reunión.', 'warning');
+      } else {
+        setMeetSaveMessage('No se encontró una reunión vinculada a este link de Google Meet. Verifica el campo "Link de meet" en Airtable.', 'warning');
+      }
       return;
     }
 
@@ -527,10 +574,15 @@
         },
         body: JSON.stringify(body)
       });
+      setMeetSaveMessage('Cambios guardados correctamente en Airtable.', 'success');
       console.log('Extension FD: reunión guardada correctamente', result);
     } catch (error) {
       console.error('Extension FD: error de red al guardar reunión', error);
     } finally {
+      const messageEl = meetForm.querySelector('#fd-meet-save-message');
+      if (messageEl?.textContent === 'Guardando cambios de la reunion...') {
+        setMeetSaveMessage('No se pudieron guardar los cambios. Revisa la conexion, el backend local o la sesion de Google.', 'error');
+      }
       stopLoadingState();
     }
   }
@@ -573,7 +625,7 @@
     return fetchJson(`${API_BASE_URL}/me`);
   }
 
-  async function bookMeeting({ telefono, nombre, email, date, time, duration }) {
+  async function bookMeeting({ telefono, nombre, email, date, time, duration, phase = '', assignedSellerRecordId = '', assignedSellerName = '' }) {
     return fetchJson(`${API_BASE_URL}/book`, {
       method: 'POST',
       headers: {
@@ -585,7 +637,10 @@
         email,
         date,
         time,
-        duration: Number(duration)
+        duration: Number(duration),
+        ...(phase ? { phase } : {}),
+        ...(assignedSellerRecordId ? { assignedSellerRecordId } : {}),
+        ...(assignedSellerName ? { assignedSellerName } : {})
       })
     });
   }
@@ -761,6 +816,9 @@
     panel.dataset.currentName = '';
     panel.dataset.currentEmail = '';
     panel.dataset.selectedBookingTime = '';
+    panel.dataset.selectedBookingSellers = '[]';
+    panel.dataset.selectedBookingSellerRecordId = '';
+    panel.dataset.selectedBookingSellerName = '';
 
     const subtitle = panel.querySelector('.panel-subtitle');
     if (subtitle) subtitle.textContent = 'Acceso restringido';
@@ -801,6 +859,7 @@
     }
 
     setAvailabilityMessage(panel, message, true);
+    renderBookingAssignmentSelector(panel, []);
     setBookingMessage(panel, '', false);
     setBookingButtonState(panel, false);
   }
@@ -1650,34 +1709,180 @@
     if (!panel) return;
 
     panel.dataset.selectedBookingTime = '';
+    panel.dataset.selectedBookingSellers = '[]';
+    panel.dataset.selectedBookingSellerRecordId = '';
+    panel.dataset.selectedBookingSellerName = '';
     panel.querySelectorAll('.availability-slot-item').forEach(slotItem => {
       slotItem.dataset.selected = 'false';
       slotItem.classList.remove('fd-slot-item--selected');
     });
+    resetBookingActionsLocation(panel);
+    renderBookingAssignmentSelector(panel, []);
     setBookingButtonState(panel, false);
+  }
+
+  function getSlotAvailableSellers(slot = {}) {
+    if (Array.isArray(slot.available_sellers) && slot.available_sellers.length > 0) {
+      return slot.available_sellers;
+    }
+
+    return (slot.available_users || []).map((name) => ({
+      recordId: '',
+      nombre: name,
+      correo: '',
+      color: ''
+    }));
+  }
+
+  function readSlotSellers(slotItem) {
+    try {
+      return JSON.parse(slotItem?.dataset.availableSellers || '[]');
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  function sortSellersByWeeklyLoad(sellers = []) {
+    return [...sellers].sort((a, b) => {
+      const aLoad = a.load || {};
+      const bLoad = b.load || {};
+      const weekDiff = Number(aLoad.weekCount || 0) - Number(bLoad.weekCount || 0);
+      if (weekDiff !== 0) return weekDiff;
+      const todayDiff = Number(aLoad.todayCount || 0) - Number(bLoad.todayCount || 0);
+      if (todayDiff !== 0) return todayDiff;
+      const aName = (a.nombre || a.correo || '').toString();
+      const bName = (b.nombre || b.correo || '').toString();
+      return aName.localeCompare(bName);
+    });
+  }
+
+  function getSellerDisplayName(seller = {}) {
+    return seller.nombre || seller.correo || 'Sin nombre';
+  }
+
+  function getSellerInitials(seller = {}) {
+    const name = getSellerDisplayName(seller).trim();
+    const parts = name.split(/\s+/).filter(Boolean);
+    const initials = parts.length > 1
+      ? `${parts[0][0] || ''}${parts[1][0] || ''}`
+      : name.slice(0, 2);
+    return initials.toUpperCase() || '?';
+  }
+
+  function getSellerAssignmentLabel(seller = {}) {
+    const load = seller.load || {};
+    const loadParts = [
+      `${Number(load.todayCount || 0)} hoy`,
+      `${Number(load.weekCount || 0)} esta semana`
+    ].filter(Boolean);
+    return `${getSellerDisplayName(seller)} (${loadParts.join(', ')})`;
+  }
+
+  function findSellerByIdentity(sellers = [], recordId = '', name = '') {
+    return sellers.find((seller) => {
+      const sellerRecordId = seller.recordId || '';
+      const sellerName = getSellerDisplayName(seller);
+      return (recordId && sellerRecordId === recordId) || (!recordId && name && sellerName === name);
+    }) || null;
+  }
+
+  function renderSellerBubbles(sellers = []) {
+    return sortSellersByWeeklyLoad(sellers).map((seller) => {
+      const recordId = escapeHtml(seller.recordId || '');
+      const name = getSellerDisplayName(seller);
+      const safeName = escapeHtml(name);
+      const safeColor = normalizeHexColor(seller.color);
+      const color = safeColor ? ` style="--seller-color:${safeColor}"` : '';
+      const recommended = seller.recommended ? ' fd-seller-bubble--recommended' : '';
+      return `
+        <button type="button" class="fd-seller-bubble${recommended}" data-seller-record-id="${recordId}" data-seller-name="${safeName}" title="${escapeHtml(getSellerAssignmentLabel(seller))}" aria-label="Asignar a ${safeName}"${color}>
+          ${escapeHtml(getSellerInitials(seller))}
+        </button>
+      `;
+    }).join('');
+  }
+
+  function renderBookingAssignmentSelector(panel, sellers = [], selectedSeller = null) {
+    const container = panel?.querySelector('#booking-assignment');
+    if (!container) return;
+
+    panel.dataset.selectedBookingSellerRecordId = '';
+    panel.dataset.selectedBookingSellerName = '';
+
+    if (!isManagerRole(getPanelRole(panel)) || !sellers.length) {
+      container.innerHTML = '';
+      container.hidden = true;
+      return;
+    }
+
+    const orderedSellersForReadOnly = sortSellersByWeeklyLoad(sellers);
+    const recommendedSellerForReadOnly = orderedSellersForReadOnly.find((seller) => seller.recommended) || orderedSellersForReadOnly[0];
+    const visibleSellerForReadOnly = selectedSeller || recommendedSellerForReadOnly;
+    const readOnlyAssignmentLabel = selectedSeller
+      ? getSellerAssignmentLabel(visibleSellerForReadOnly)
+      : `Automático - recomienda ${getSellerDisplayName(visibleSellerForReadOnly)}`;
+
+    if (selectedSeller) {
+      panel.dataset.selectedBookingSellerRecordId = selectedSeller.recordId || '';
+      panel.dataset.selectedBookingSellerName = getSellerDisplayName(selectedSeller);
+    }
+
+    container.hidden = false;
+    container.innerHTML = `
+      <div class="fd-booking-assignment-label">Asignar a</div>
+      <div class="fd-booking-assignment-readonly" aria-live="polite">${escapeHtml(readOnlyAssignmentLabel)}</div>
+    `;
+  }
+
+  function resetBookingActionsLocation(panel) {
+    const anchor = panel?.querySelector('#booking-actions-anchor');
+    const shell = panel?.querySelector('#booking-actions-shell');
+    if (anchor && shell && shell.parentElement !== anchor) {
+      anchor.appendChild(shell);
+    }
+  }
+
+  function moveBookingActionsAfterSlot(panel, slotItem) {
+    const shell = panel?.querySelector('#booking-actions-shell');
+    if (!shell || !slotItem) return;
+    slotItem.insertAdjacentElement('afterend', shell);
   }
 
   function renderAvailabilityResults(panel, slots = []) {
     const results = panel?.querySelector('#availability-results');
     if (!results) return;
 
+    resetBookingActionsLocation(panel);
+
     if (!slots.length) {
       panel.dataset.selectedBookingTime = '';
+      panel.dataset.selectedBookingSellers = '[]';
       setAvailabilityMessage(panel, 'No hay disponibilidad para este dia');
+      renderBookingAssignmentSelector(panel, []);
       setBookingButtonState(panel, false);
       return;
     }
 
     panel.dataset.selectedBookingTime = '';
+    panel.dataset.selectedBookingSellers = '[]';
     setBookingMessage(panel, '');
+    renderBookingAssignmentSelector(panel, []);
     setBookingButtonState(panel, false);
 
-    results.innerHTML = slots.map(slot => `
-      <button type="button" class="fd-slot-item availability-slot-item" data-time="${slot.time}" data-selected="false">
-        <span class="fd-slot-time">${slot.time}</span>
-        <span class="fd-slot-users">${slot.available_users.length} disponible${slot.available_users.length === 1 ? '' : 's'}</span>
-      </button>
-    `).join('');
+    results.innerHTML = slots.map(slot => {
+      const availableSellers = sortSellersByWeeklyLoad(getSlotAvailableSellers(slot));
+      return `
+      <div class="fd-slot-item availability-slot-item" role="button" tabindex="0" data-time="${escapeHtml(slot.time)}" data-available-sellers="${escapeHtml(JSON.stringify(availableSellers))}" data-selected="false">
+        <div class="fd-slot-main">
+          <span class="fd-slot-time">${escapeHtml(slot.time)}</span>
+          <span class="fd-slot-users">${slot.available_users.length} disponible${slot.available_users.length === 1 ? '' : 's'}</span>
+        </div>
+        <div class="fd-slot-sellers" aria-label="Vendedoras disponibles">
+          ${renderSellerBubbles(availableSellers)}
+        </div>
+      </div>
+    `;
+    }).join('');
   }
 
   function bindAvailabilityInteractions(panel) {
@@ -1705,7 +1910,12 @@
       const date = dateInput?.value;
       const duration = durationSelect?.value || '30';
       panel.dataset.selectedBookingTime = '';
+      panel.dataset.selectedBookingSellers = '[]';
+      panel.dataset.selectedBookingSellerRecordId = '';
+      panel.dataset.selectedBookingSellerName = '';
       setBookingMessage(panel, '');
+      resetBookingActionsLocation(panel);
+      renderBookingAssignmentSelector(panel, []);
       setBookingButtonState(panel, false);
 
       if (!date) {
@@ -1736,27 +1946,68 @@
     results?.addEventListener('click', (event) => {
       const item = event.target.closest('.availability-slot-item');
       if (!item) return;
+      const sellerBubble = event.target.closest('.fd-seller-bubble');
+      const wasSelected = item.dataset.selected === 'true';
 
       results.querySelectorAll('.availability-slot-item').forEach(s => {
         s.dataset.selected = 'false';
         s.classList.remove('fd-slot-item--selected');
+        s.querySelectorAll('.fd-seller-bubble').forEach((bubble) => {
+          bubble.classList.remove('fd-seller-bubble--selected');
+        });
       });
+
+      if (wasSelected && !sellerBubble) {
+        panel.dataset.selectedBookingTime = '';
+        panel.dataset.selectedBookingSellers = '[]';
+        panel.dataset.selectedBookingSellerRecordId = '';
+        panel.dataset.selectedBookingSellerName = '';
+        resetBookingActionsLocation(panel);
+        renderBookingAssignmentSelector(panel, []);
+        setBookingMessage(panel, '');
+        setBookingButtonState(panel, false);
+        return;
+      }
 
       item.dataset.selected = 'true';
       item.classList.add('fd-slot-item--selected');
       panel.dataset.selectedBookingTime = item.dataset.time || '';
+      const availableSellers = readSlotSellers(item);
+      panel.dataset.selectedBookingSellers = JSON.stringify(availableSellers);
+      const selectedSeller = sellerBubble
+        ? findSellerByIdentity(availableSellers, sellerBubble.dataset.sellerRecordId || '', sellerBubble.dataset.sellerName || '')
+        : null;
+      if (sellerBubble && selectedSeller) {
+        sellerBubble.classList.add('fd-seller-bubble--selected');
+      }
+      renderBookingAssignmentSelector(panel, availableSellers, selectedSeller);
+      moveBookingActionsAfterSlot(panel, item);
       setBookingMessage(panel, '');
       setBookingButtonState(panel, true);
     });
 
+    results?.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      const target = event.target.closest('.availability-slot-item, .fd-seller-bubble');
+      if (!target) return;
+      event.preventDefault();
+      target.click();
+    });
+
     dateInput?.addEventListener('change', () => {
       panel.dataset.selectedBookingTime = '';
+      panel.dataset.selectedBookingSellers = '[]';
+      resetBookingActionsLocation(panel);
+      renderBookingAssignmentSelector(panel, []);
       setBookingMessage(panel, '');
       setBookingButtonState(panel, false);
     });
 
     durationSelect?.addEventListener('change', () => {
       panel.dataset.selectedBookingTime = '';
+      panel.dataset.selectedBookingSellers = '[]';
+      resetBookingActionsLocation(panel);
+      renderBookingAssignmentSelector(panel, []);
       setBookingMessage(panel, '');
       setBookingButtonState(panel, false);
     });
@@ -1776,6 +2027,9 @@
       const date = dateInput?.value || '';
       const duration = durationSelect?.value || '30';
       const time = panel.dataset.selectedBookingTime || '';
+      const phase = getRespondPagePhase();
+      const assignedSellerRecordId = panel.dataset.selectedBookingSellerRecordId || '';
+      const assignedSellerName = panel.dataset.selectedBookingSellerName || '';
 
       if (!telefono || !nombre) {
         setBookingMessage(panel, 'Faltan datos del cliente para agendar.', true);
@@ -1803,13 +2057,14 @@
       setBookingMessage(panel, 'Creando evento y link de Meet...');
 
       try {
-        const booking = await bookMeeting({ telefono, nombre, email, date, time, duration });
+        const booking = await bookMeeting({ telefono, nombre, email, date, time, duration, phase, assignedSellerRecordId, assignedSellerName });
         const fields = await fetchContactData(telefono);
         const meetings = await fetchMeetingsData(telefono);
         updatePanelWithData(fields || {
           Nombre: nombre,
           Telefono: telefono,
-          Correo: email
+          Correo: email,
+          'Fase del Momento': phase || 'FASE 1'
         }, meetings);
 
         const meetLink = booking?.meetLink || '';
@@ -1820,7 +2075,7 @@
           meetLink
         );
         clearSelectedBookingSlot(panel);
-        setAvailabilityMessage(panel, 'Reunion agendada. Volve a consultar disponibilidad para reservar otro horario.');
+        setAvailabilityMessage(panel, 'Reunión agendada. Volvé a consultar disponibilidad para reservar otro horario.');
       } catch (error) {
         console.error('Extension FD: error al agendar reunion', error);
         setBookingMessage(panel, 'No se pudo agendar la reunion.', true);
@@ -2085,8 +2340,13 @@
           <div id="availability-results">
             <div class="fd-empty-state">Selecciona una fecha y duracion para consultar horarios</div>
           </div>
-          <button id="booking-create-btn" type="button" disabled>Agendar reunion</button>
-          <div id="booking-message" style="display:none;"></div>
+          <div id="booking-actions-anchor">
+            <div id="booking-actions-shell" class="fd-booking-actions-shell">
+              <div id="booking-assignment" class="fd-booking-assignment" hidden></div>
+              <button id="booking-create-btn" type="button" disabled>Agendar reunion</button>
+              <div id="booking-message" style="display:none;"></div>
+            </div>
+          </div>
         </div>
         <div class="separator"></div>
         <div class="panel-section-summary">
@@ -2241,11 +2501,61 @@
     });
   }
 
+  function bindMeetResizeHandle(meetForm, handle, mode) {
+    if (!handle || handle.dataset.bound === 'true') return;
+    handle.dataset.bound = 'true';
+
+    handle.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const startRect = meetForm.getBoundingClientRect();
+      const startWidth = startRect.width;
+      const startHeight = startRect.height;
+
+      document.body.style.cursor = mode === 'width' ? 'ew-resize' : (mode === 'height' ? 'ns-resize' : 'nesw-resize');
+      document.body.style.userSelect = 'none';
+
+      const onMove = (moveEvent) => {
+        const maxWidth = Math.max(320, window.innerWidth - 24);
+        const maxHeight = Math.max(360, window.innerHeight - 72);
+        const nextWidth = mode === 'height'
+          ? startWidth
+          : Math.min(maxWidth, Math.max(320, startWidth - (moveEvent.clientX - startX)));
+        const nextHeight = mode === 'width'
+          ? startHeight
+          : Math.min(maxHeight, Math.max(360, startHeight + (moveEvent.clientY - startY)));
+
+        meetForm.style.setProperty('width', `${nextWidth}px`, 'important');
+        meetForm.style.setProperty('height', `${nextHeight}px`, 'important');
+        meetForm.style.bottom = 'auto';
+      };
+
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      };
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  function bindMeetPanelResize(meetForm) {
+    bindMeetResizeHandle(meetForm, meetForm?.querySelector('#fd-meet-resize-left'), 'width');
+    bindMeetResizeHandle(meetForm, meetForm?.querySelector('#fd-meet-resize-bottom'), 'height');
+    bindMeetResizeHandle(meetForm, meetForm?.querySelector('#fd-meet-resize-handle'), 'both');
+  }
+
   function injectMeetForm() {
     let meetForm = document.getElementById('custom-meet-form');
     if (meetForm) return meetForm;
 
-    const container = document.getElementById('ME4pNd') || document.body;
+    const container = document.body;
 
     const vendedoras = ['FLORENCIA', 'SILVINA', 'ITATI', 'SARITA', 'ORNELLA', 'LIZ', 'INES', 'Milbia'];
     const vendedoraOptions = vendedoras.map(v => `<option value="${v}">${v}</option>`).join('');
@@ -2259,9 +2569,10 @@
     meetForm.style.position = 'fixed';
     meetForm.style.right = '0px';
     meetForm.style.top = '50px';
-    meetForm.style.bottom = '80px';
-    meetForm.style.zIndex = '999998';
-    meetForm.style.width = '20%';
+    meetForm.style.bottom = 'auto';
+    meetForm.style.zIndex = '2147483646';
+    meetForm.style.setProperty('width', '380px', 'important');
+    meetForm.style.setProperty('height', 'calc(100vh - 130px)', 'important');
     meetForm.style.display = 'none';
 
     meetForm.innerHTML = `
@@ -2301,7 +2612,7 @@
                   </select>
                 </div>
                 <div class="fd-form-row">
-                  <label class="qdOxv-fmcmS-wGMbrd" for="fd-meet-registro">Logramos el Registro?:</label>
+                  <label class="qdOxv-fmcmS-wGMbrd" for="fd-meet-registro">¿Logramos el Registro?:</label>
                   <div class="fd-meet-control-shell fd-meet-control-shell--checkbox">
                     <input type="checkbox" id="fd-meet-registro" class="fd-meet-checkbox" />
                   </div>
@@ -2323,17 +2634,22 @@
                 </div>
                 <div class="fd-meet-guardar-row">
                   <button type="button" class="fd-meet-guardar-btn" id="fd-meet-guardar">Guardar</button>
+                  <div id="fd-meet-save-message" class="fd-meet-save-message" role="status" aria-live="polite" style="display:none;"></div>
                 </div>
               </div>
             </div>
           </div>
         </div>
       </aside>
+      <div id="fd-meet-resize-left" aria-hidden="true"></div>
+      <div id="fd-meet-resize-bottom" aria-hidden="true"></div>
+      <div id="fd-meet-resize-handle" title="Redimensionar panel"></div>
     `;
 
     container.appendChild(meetForm);
 
     bindMeetEditableTitle(meetForm);
+    bindMeetPanelResize(meetForm);
 
     // Meet close button logic (header; no confundir con Guardar)
     const closeBtn = meetForm.querySelector('.fd-meet-header-block button');
@@ -2429,10 +2745,25 @@
           if (isOpening) {
             meetForm.style.right = '0px';
             meetForm.dataset.airtableRecordId = '';
+            meetForm.dataset.authRequired = 'false';
             const meetLink = getCurrentMeetLinkForAirtable();
             fetchMeetingRecordByMeetLink(meetLink).then(record => {
+              if (record?.authRequired) meetForm.dataset.authRequired = 'true';
               if (record?.id) meetForm.dataset.airtableRecordId = record.id;
               if (record?.fields) applyMeetingFieldsToMeetForm(meetForm, record.fields);
+              const messageEl = meetForm.querySelector('#fd-meet-save-message');
+              if (record?.authRequired && messageEl) {
+                messageEl.textContent = 'Inicia sesión con Google para ver y guardar los datos de esta reunión.';
+                messageEl.className = 'fd-meet-save-message fd-meet-save-message--warning';
+                messageEl.style.display = 'block';
+              } else if (!record?.id && messageEl) {
+                messageEl.textContent = 'No se encontró una reunión vinculada a este link de Google Meet.';
+                messageEl.className = 'fd-meet-save-message fd-meet-save-message--warning';
+                messageEl.style.display = 'block';
+              } else if (messageEl) {
+                messageEl.textContent = '';
+                messageEl.style.display = 'none';
+              }
             });
           }
 

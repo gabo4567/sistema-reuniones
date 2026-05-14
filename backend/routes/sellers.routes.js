@@ -117,6 +117,15 @@ router.get('/me', async (req, res) => {
       getSellerByEmail(email)
     ]);
 
+    if (!authUser?.activo) {
+      return res.json({
+        authenticated: false,
+        resolvedFrom,
+        email,
+        reason: authUser ? 'inactive_auth_user' : 'auth_user_not_found'
+      });
+    }
+
     return res.json({
       authenticated: true,
       resolvedFrom,
