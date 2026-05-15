@@ -1,6 +1,7 @@
 const express = require('express');
 const { google } = require('googleapis');
 const { saveUser, getActiveUsers, normalizeRole } = require('../services/users.service');
+const { getBusinessUserByEmail } = require('../services/airtable.service');
 
 const router = express.Router();
 
@@ -322,6 +323,18 @@ router.get('/callback', async (req, res) => {
 
     if (!email) {
       return res.status(500).json({ error: 'Unable to resolve Google account email' });
+    }
+
+    const businessUser = await getBusinessUserByEmail(email);
+    if (!businessUser) {
+      console.log('OAuth user rejected because it is not registered in Usuarios', {
+        email
+      });
+
+      return res.status(403).send(renderLoginErrorPage({
+        title: 'Usuario no registrado',
+        message: 'Tu cuenta de Google no esta registrada como vendedora. Contacta al administrador para solicitar acceso.'
+      }));
     }
 
     const userData = {
