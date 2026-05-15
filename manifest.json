@@ -13,6 +13,6 @@
       "css": ["content.css"]
     }
   ],
-  "host_permissions": ["http://localhost:3000/*"],
+  "host_permissions": ["https://reuniones.pacta.com.ar/*"],
   "permissions": ["storage"]
 }

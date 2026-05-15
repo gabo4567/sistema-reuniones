@@ -1,6 +1,6 @@
 (function() {
   if (document.getElementById('custom-calendar-btn')) return;
-  const API_BASE_URL = 'http://localhost:3000/api';
+  const API_BASE_URL = 'https://reuniones.pacta.com.ar/api';
   const AUTH_BASE_URL = API_BASE_URL.replace(/\/api$/, '');
   const FD_AUTH_EMAIL_STORAGE_KEY = 'fdAuthEmail';
   let fdAuthEmail = '';
