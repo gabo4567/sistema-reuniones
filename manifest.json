@@ -13,6 +13,6 @@
       "css": ["content.css"]
     }
   ],
-  "host_permissions": ["https://reuniones.pacta.com.ar/*"],
+  "host_permissions": ["https://extension-fd-backend.onrender.com/*"],
   "permissions": ["storage"]
 }

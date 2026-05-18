@@ -13,6 +13,14 @@ function createOAuthClient() {
   );
 }
 
+function normalizeGoogleAuthUrl(authUrl) {
+  if (authUrl.startsWith('/')) {
+    return `https://accounts.google.com${authUrl}`;
+  }
+
+  return authUrl;
+}
+
 function renderLoginSuccessPage(userEmail) {
   return `
     <!doctype html>
@@ -266,7 +274,7 @@ function renderLoginErrorPage({ title, message, statusText = 'Login no completad
 router.get('/google', (req, res) => {
   req.session.googleUserEmail = null;
   const oauth2Client = createOAuthClient();
-  const authUrl = oauth2Client.generateAuthUrl({
+  const authUrl = normalizeGoogleAuthUrl(oauth2Client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
     scope: [
@@ -274,7 +282,7 @@ router.get('/google', (req, res) => {
       'https://www.googleapis.com/auth/userinfo.email',
       'https://www.googleapis.com/auth/calendar'
     ]
-  });
+  }));
 
   res.redirect(authUrl);
 });
