@@ -1196,12 +1196,7 @@
   ];
 
   function getDefaultWorkHourRanges(day = 'monday') {
-    if (day === 'saturday') return [{ start: '08:00', end: '12:00' }];
-    if (day === 'sunday') return [];
-    return [
-      { start: '09:00', end: '12:00' },
-      { start: '14:00', end: '18:00' }
-    ];
+    return [{ start: '08:00', end: '20:00' }];
   }
 
   function getDefaultWeeklyWorkHours() {
@@ -1224,8 +1219,8 @@
     const normalizedRanges = ranges.length ? ranges : getDefaultWorkHourRanges(day);
     dayList.innerHTML = normalizedRanges.map((range, index) => `
       <div class="fd-work-hour-row" data-day="${escapeHtml(day)}">
-        <input type="time" class="fd-work-hour-start" value="${escapeHtml(range.start || '09:00')}" aria-label="Inicio rango ${index + 1}" />
-        <input type="time" class="fd-work-hour-end" value="${escapeHtml(range.end || '12:00')}" aria-label="Fin rango ${index + 1}" />
+        <input type="time" class="fd-work-hour-start" value="${escapeHtml(range.start || '08:00')}" aria-label="Inicio rango ${index + 1}" />
+        <input type="time" class="fd-work-hour-end" value="${escapeHtml(range.end || '20:00')}" aria-label="Fin rango ${index + 1}" />
         <button type="button" class="fd-work-hour-remove" aria-label="Quitar rango">Quitar</button>
       </div>
     `).join('');
@@ -1316,10 +1311,6 @@
           <strong>Horario laboral personalizado</strong>
           <span>Configura la semana laboral por día. Puedes agregar mañana y tarde, o sábado al mediodía.</span>
         </div>
-        <label class="fd-check-row">
-          <input id="fd-work-hours-enabled" type="checkbox" />
-          <span>Usar horario personalizado</span>
-        </label>
         <div id="fd-work-hours-list" class="fd-work-hours-list"></div>
         <button type="button" id="fd-work-hours-save">Guardar horario</button>
         <div id="fd-work-hours-message" class="fd-role-action-message"></div>
@@ -1345,7 +1336,6 @@
     `;
 
     const receiveToggle = container.querySelector('#fd-receive-toggle');
-    const workHoursEnabled = container.querySelector('#fd-work-hours-enabled');
     const workHoursSave = container.querySelector('#fd-work-hours-save');
     const workHoursList = container.querySelector('#fd-work-hours-list');
     const blockType = container.querySelector('#fd-block-type');
@@ -1365,7 +1355,6 @@
       renderWeeklyWorkHours(container, getDefaultWeeklyWorkHours());
       fetchWorkHours(usuario.recordId)
         .then((workHours) => {
-          if (workHoursEnabled) workHoursEnabled.checked = workHours?.enabled === true;
           renderWeeklyWorkHours(container, workHours?.weekly || getDefaultWeeklyWorkHours());
         })
         .catch((error) => {
@@ -1385,7 +1374,7 @@
           setWorkHoursMessage(panel, 'Puedes cargar hasta 4 rangos por dia.', true);
           return;
         }
-        renderWorkHourRows(container, day, [...ranges, { start: day === 'saturday' ? '08:00' : '14:00', end: day === 'saturday' ? '12:00' : '18:00' }]);
+        renderWorkHourRows(container, day, [...ranges, { start: '08:00', end: '20:00' }]);
         setWorkHoursMessage(panel, '');
         return;
       }
@@ -1403,11 +1392,10 @@
 
     workHoursSave?.addEventListener('click', async () => {
       const weekly = collectWeeklyWorkHours(container);
-      const enabled = workHoursEnabled?.checked === true;
 
       const enabledDays = WORK_HOUR_DAYS.filter(([day]) => weekly[day].enabled);
-      if (enabled && !enabledDays.length) {
-        setWorkHoursMessage(panel, 'Activa al menos un dia para usar horario personalizado.', true);
+      if (!enabledDays.length) {
+        setWorkHoursMessage(panel, 'Activa al menos un dia para guardar el horario.', true);
         return;
       }
 
@@ -1424,12 +1412,9 @@
       setWorkHoursMessage(panel, 'Guardando horario personalizado...');
 
       try {
-        const saved = await saveWorkHours(usuario.recordId, { enabled, weekly });
-        if (workHoursEnabled) workHoursEnabled.checked = saved.enabled === true;
+        const saved = await saveWorkHours(usuario.recordId, { enabled: true, weekly });
         renderWeeklyWorkHours(container, saved.weekly || getDefaultWeeklyWorkHours());
-        const successMessage = saved.enabled
-          ? 'Horario personalizado guardado correctamente.'
-          : 'Horario personalizado desactivado correctamente.';
+        const successMessage = 'Horario guardado correctamente.';
         setWorkHoursMessage(panel, successMessage);
         window.alert(successMessage);
       } catch (error) {
@@ -1565,7 +1550,6 @@
 
   function formatWorkHoursSummary(workHours) {
     if (!workHours) return 'Sin horario personalizado cargado.';
-    if (workHours.enabled !== true) return 'Horario personalizado desactivado.';
 
     const activeDays = WORK_HOUR_DAYS
       .map(([day, label]) => {

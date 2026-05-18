@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { listSellers } = require('./sellers.service');
 
 const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY;
 const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID;
@@ -39,13 +40,13 @@ function normalizeRanges(ranges = []) {
 
 function getDefaultWeeklySchedule() {
   return {
-    monday: { enabled: true, ranges: [{ start: '09:00', end: '12:00' }, { start: '14:00', end: '18:00' }] },
-    tuesday: { enabled: true, ranges: [{ start: '09:00', end: '12:00' }, { start: '14:00', end: '18:00' }] },
-    wednesday: { enabled: true, ranges: [{ start: '09:00', end: '12:00' }, { start: '14:00', end: '18:00' }] },
-    thursday: { enabled: true, ranges: [{ start: '09:00', end: '12:00' }, { start: '14:00', end: '18:00' }] },
-    friday: { enabled: true, ranges: [{ start: '09:00', end: '12:00' }, { start: '14:00', end: '18:00' }] },
-    saturday: { enabled: false, ranges: [{ start: '08:00', end: '12:00' }] },
-    sunday: { enabled: false, ranges: [] }
+    monday: { enabled: true, ranges: [{ start: '08:00', end: '20:00' }] },
+    tuesday: { enabled: true, ranges: [{ start: '08:00', end: '20:00' }] },
+    wednesday: { enabled: true, ranges: [{ start: '08:00', end: '20:00' }] },
+    thursday: { enabled: true, ranges: [{ start: '08:00', end: '20:00' }] },
+    friday: { enabled: true, ranges: [{ start: '08:00', end: '20:00' }] },
+    saturday: { enabled: false, ranges: [{ start: '08:00', end: '20:00' }] },
+    sunday: { enabled: false, ranges: [{ start: '08:00', end: '20:00' }] }
   };
 }
 
@@ -58,7 +59,7 @@ function normalizeWeeklySchedule(weekly = {}, fallbackRanges = []) {
     const source = hasWeekly
       ? (weekly[day] || {})
       : {
-          enabled: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].includes(day) && legacyRanges.length > 0,
+          enabled: legacyRanges.length > 0 ? ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].includes(day) : defaults[day].enabled,
           ranges: legacyRanges.length ? legacyRanges : defaults[day].ranges
         };
     const ranges = normalizeRanges(source.ranges || defaults[day].ranges);
@@ -102,7 +103,7 @@ function mapRecordToWorkHourRow(record) {
 function buildEmptyWorkHours(sellerRecordId) {
   return {
     sellerRecordId,
-    enabled: false,
+    enabled: true,
     ranges: [],
     weekly: normalizeWeeklySchedule()
   };
@@ -113,7 +114,6 @@ function buildWorkHoursFromRows(sellerRecordId, rows = []) {
     return buildEmptyWorkHours(sellerRecordId);
   }
 
-  const enabled = rows.some((row) => row.customEnabled);
   const defaults = getDefaultWeeklySchedule();
   const weekly = Object.fromEntries(DAY_KEYS.map((day) => {
     const dayRows = rows
@@ -134,25 +134,27 @@ function buildWorkHoursFromRows(sellerRecordId, rows = []) {
 
   return {
     sellerRecordId,
-    enabled,
+    enabled: DAY_KEYS.some((day) => weekly[day].enabled),
     ranges: [],
     weekly
   };
 }
 
-function buildRowsFromWorkHours(sellerRecordId, { enabled, weekly }) {
+function buildRowsFromWorkHours(sellerRecordId, { weekly }) {
+  const hasEnabledDay = DAY_KEYS.some((day) => weekly[day]?.enabled && weekly[day]?.ranges?.length);
   return DAY_KEYS.flatMap((day) => {
     const dayConfig = weekly[day] || { enabled: false, ranges: [] };
     if (!dayConfig.enabled) {
+      const defaultRange = getDefaultWeeklySchedule()[day].ranges[0] || { start: '08:00', end: '20:00' };
       return [{
         fields: {
           Usuario: [sellerRecordId],
           Dia: day,
           Activo: false,
-          'Hora inicio': '',
-          'Hora fin': '',
+          'Hora inicio': defaultRange.start,
+          'Hora fin': defaultRange.end,
           Orden: DAY_ORDER[day] * 10,
-          'Horario personalizado activo': enabled
+          'Horario personalizado activo': hasEnabledDay
         }
       }];
     }
@@ -165,7 +167,7 @@ function buildRowsFromWorkHours(sellerRecordId, { enabled, weekly }) {
         'Hora inicio': range.start,
         'Hora fin': range.end,
         Orden: (DAY_ORDER[day] * 10) + index,
-        'Horario personalizado activo': enabled
+        'Horario personalizado activo': hasEnabledDay
       }
     }));
   });
@@ -219,10 +221,16 @@ async function createRows(rows = []) {
 
 async function getWorkHours(sellerRecordId) {
   const rows = await listRowsForSeller(sellerRecordId);
+  if (!rows.length) {
+    await createRows(buildRowsFromWorkHours(sellerRecordId, { weekly: normalizeWeeklySchedule() }));
+    return getWorkHours(sellerRecordId);
+  }
+
   return buildWorkHoursFromRows(sellerRecordId, rows);
 }
 
 async function listWorkHours() {
+  const sellers = await listSellers();
   const rows = await listRawWorkHourRows();
   const rowsBySeller = rows.reduce((acc, row) => {
     row.sellerRecordIds.forEach((sellerRecordId) => {
@@ -232,20 +240,28 @@ async function listWorkHours() {
     return acc;
   }, {});
 
+  const sellersWithoutRows = sellers.filter((seller) => seller.recordId && !rowsBySeller[seller.recordId]);
+  for (const seller of sellersWithoutRows) {
+    const weekly = normalizeWeeklySchedule();
+    await createRows(buildRowsFromWorkHours(seller.recordId, { weekly }));
+    rowsBySeller[seller.recordId] = buildRowsFromWorkHours(seller.recordId, { weekly })
+      .map((record) => mapRecordToWorkHourRow({ id: '', fields: record.fields }));
+  }
+
   return Object.fromEntries(
-    Object.entries(rowsBySeller).map(([sellerRecordId, sellerRows]) => [
-      sellerRecordId,
-      buildWorkHoursFromRows(sellerRecordId, sellerRows)
-    ])
+    sellers
+      .filter((seller) => seller.recordId)
+      .map((seller) => [
+        seller.recordId,
+        buildWorkHoursFromRows(seller.recordId, rowsBySeller[seller.recordId] || [])
+      ])
   );
 }
 
 async function saveWorkHours(sellerRecordId, data = {}) {
   const weekly = normalizeWeeklySchedule(data.weekly, data.ranges || []);
-  const hasEnabledDay = DAY_KEYS.some((day) => weekly[day].enabled && weekly[day].ranges.length > 0);
-  const enabled = data.enabled === true && hasEnabledDay;
   const existingRows = await listRowsForSeller(sellerRecordId);
-  const nextRows = buildRowsFromWorkHours(sellerRecordId, { enabled, weekly });
+  const nextRows = buildRowsFromWorkHours(sellerRecordId, { weekly });
 
   await deleteRows(existingRows.map((row) => row.recordId));
   await createRows(nextRows);
