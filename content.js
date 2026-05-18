@@ -1427,7 +1427,11 @@
         const saved = await saveWorkHours(usuario.recordId, { enabled, weekly });
         if (workHoursEnabled) workHoursEnabled.checked = saved.enabled === true;
         renderWeeklyWorkHours(container, saved.weekly || getDefaultWeeklyWorkHours());
-        setWorkHoursMessage(panel, saved.enabled ? 'Horario personalizado guardado.' : 'Horario personalizado desactivado.');
+        const successMessage = saved.enabled
+          ? 'Horario personalizado guardado correctamente.'
+          : 'Horario personalizado desactivado correctamente.';
+        setWorkHoursMessage(panel, successMessage);
+        window.alert(successMessage);
       } catch (error) {
         console.error('Extension FD: error al guardar horario laboral', error);
         setWorkHoursMessage(panel, 'No se pudo guardar el horario personalizado.', true);
