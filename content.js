@@ -1196,7 +1196,14 @@
   ];
 
   function getDefaultWorkHourRanges(day = 'monday') {
-    return [{ start: '08:00', end: '20:00' }];
+    return [
+      { start: '08:00', end: '12:00' },
+      { start: '16:00', end: '20:00' }
+    ];
+  }
+
+  function getDefaultWorkHourRange(day = 'monday') {
+    return getDefaultWorkHourRanges(day)[0] || { start: '08:00', end: '12:00' };
   }
 
   function getDefaultWeeklyWorkHours() {
@@ -1216,11 +1223,12 @@
     const dayList = list.querySelector(`[data-work-day-ranges="${day}"]`);
     if (!dayList) return;
 
-    const normalizedRanges = ranges.length ? ranges : getDefaultWorkHourRanges(day);
+    const fallbackRange = getDefaultWorkHourRange(day);
+    const normalizedRanges = ranges.length ? ranges : [fallbackRange];
     dayList.innerHTML = normalizedRanges.map((range, index) => `
       <div class="fd-work-hour-row" data-day="${escapeHtml(day)}">
-        <input type="time" class="fd-work-hour-start" value="${escapeHtml(range.start || '08:00')}" aria-label="Inicio rango ${index + 1}" />
-        <input type="time" class="fd-work-hour-end" value="${escapeHtml(range.end || '20:00')}" aria-label="Fin rango ${index + 1}" />
+        <input type="time" class="fd-work-hour-start" value="${escapeHtml(range.start || fallbackRange.start)}" aria-label="Inicio rango ${index + 1}" />
+        <input type="time" class="fd-work-hour-end" value="${escapeHtml(range.end || fallbackRange.end)}" aria-label="Fin rango ${index + 1}" />
         <button type="button" class="fd-work-hour-remove" aria-label="Quitar rango">Quitar</button>
       </div>
     `).join('');
@@ -1374,7 +1382,7 @@
           setWorkHoursMessage(panel, 'Puedes cargar hasta 4 rangos por dia.', true);
           return;
         }
-        renderWorkHourRows(container, day, [...ranges, { start: '08:00', end: '20:00' }]);
+        renderWorkHourRows(container, day, [...ranges, getDefaultWorkHourRange(day)]);
         setWorkHoursMessage(panel, '');
         return;
       }
@@ -1850,7 +1858,7 @@
       msgEl.style.display = 'none';
 
       try {
-        await fetchJson(`${API_BASE_URL}/sellers`, {
+        const createdSeller = await fetchJson(`${API_BASE_URL}/sellers`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1862,6 +1870,9 @@
             puede_recibir_reuniones: recibeInput?.checked === true
           })
         });
+        if (createdSeller?.recordId && !createdSeller?.workHours) {
+          await fetchWorkHours(createdSeller.recordId);
+        }
 
         if (idInput) idInput.value = '';
         if (nombreInput) nombreInput.value = '';

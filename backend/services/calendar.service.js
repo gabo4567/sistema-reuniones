@@ -175,20 +175,6 @@ async function deleteCalendarEvent(user, calendarEventId) {
   });
 }
 
-function getWorkingHours(date) {
-  const dayOfWeek = new Date(buildLocalDateTime(date, '00:00')).getUTCDay();
-
-  if (dayOfWeek === 0) {
-    return null;
-  }
-
-  if (dayOfWeek === 6) {
-    return { start: '08:00', end: '12:00' };
-  }
-
-  return { start: '08:00', end: '20:00' };
-}
-
 function createSlotDate(date, time) {
   return new Date(buildLocalDateTime(date, time));
 }
@@ -206,22 +192,16 @@ function addMinutesToTime(time, minutesToAdd) {
 }
 
 function generateSlots(date, duration) {
-  const workingHours = getWorkingHours(date);
-
-  if (!workingHours) {
-    return [];
-  }
-
   const slots = [];
   const slotStep = 15;
-  let current = workingHours.start;
+  let current = '00:00';
   const now = new Date();
 
   while (true) {
     const next = addMinutesToTime(current, duration);
     const slotStart = createSlotDate(date, current);
     const slotEnd = createSlotDate(date, next);
-    const dayEnd = createSlotDate(date, workingHours.end);
+    const dayEnd = createSlotDate(date, '23:59');
 
     if (slotEnd > dayEnd) {
       break;

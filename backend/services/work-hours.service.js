@@ -6,6 +6,10 @@ const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID;
 const WORK_HOURS_TABLE_NAME = process.env.WORK_HOURS_TABLE_NAME || 'HorariosVendedoras';
 const DAY_KEYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 const DAY_ORDER = Object.fromEntries(DAY_KEYS.map((day, index) => [day, index + 1]));
+const DEFAULT_WORK_HOUR_RANGES = [
+  { start: '08:00', end: '12:00' },
+  { start: '16:00', end: '20:00' }
+];
 
 if (!AIRTABLE_API_KEY || !AIRTABLE_BASE_ID) {
   throw new Error('Missing Airtable configuration. Check AIRTABLE_API_KEY and AIRTABLE_BASE_ID.');
@@ -38,15 +42,19 @@ function normalizeRanges(ranges = []) {
     .sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
 }
 
+function getDefaultWorkHourRanges() {
+  return DEFAULT_WORK_HOUR_RANGES.map((range) => ({ ...range }));
+}
+
 function getDefaultWeeklySchedule() {
   return {
-    monday: { enabled: true, ranges: [{ start: '08:00', end: '20:00' }] },
-    tuesday: { enabled: true, ranges: [{ start: '08:00', end: '20:00' }] },
-    wednesday: { enabled: true, ranges: [{ start: '08:00', end: '20:00' }] },
-    thursday: { enabled: true, ranges: [{ start: '08:00', end: '20:00' }] },
-    friday: { enabled: true, ranges: [{ start: '08:00', end: '20:00' }] },
-    saturday: { enabled: false, ranges: [{ start: '08:00', end: '20:00' }] },
-    sunday: { enabled: false, ranges: [{ start: '08:00', end: '20:00' }] }
+    monday: { enabled: true, ranges: getDefaultWorkHourRanges() },
+    tuesday: { enabled: true, ranges: getDefaultWorkHourRanges() },
+    wednesday: { enabled: true, ranges: getDefaultWorkHourRanges() },
+    thursday: { enabled: true, ranges: getDefaultWorkHourRanges() },
+    friday: { enabled: true, ranges: getDefaultWorkHourRanges() },
+    saturday: { enabled: false, ranges: getDefaultWorkHourRanges() },
+    sunday: { enabled: false, ranges: getDefaultWorkHourRanges() }
   };
 }
 
@@ -95,8 +103,7 @@ function mapRecordToWorkHourRow(record) {
     enabled: fields.Activo === true,
     start: fields['Hora inicio'] || '',
     end: fields['Hora fin'] || '',
-    order: Number(fields.Orden || 0),
-    customEnabled: fields['Horario personalizado activo'] === true
+    order: Number(fields.Orden || 0)
   };
 }
 
@@ -141,11 +148,10 @@ function buildWorkHoursFromRows(sellerRecordId, rows = []) {
 }
 
 function buildRowsFromWorkHours(sellerRecordId, { weekly }) {
-  const hasEnabledDay = DAY_KEYS.some((day) => weekly[day]?.enabled && weekly[day]?.ranges?.length);
   return DAY_KEYS.flatMap((day) => {
     const dayConfig = weekly[day] || { enabled: false, ranges: [] };
     if (!dayConfig.enabled) {
-      const defaultRange = getDefaultWeeklySchedule()[day].ranges[0] || { start: '08:00', end: '20:00' };
+      const defaultRange = getDefaultWeeklySchedule()[day].ranges[0] || { start: '08:00', end: '12:00' };
       return [{
         fields: {
           Usuario: [sellerRecordId],
@@ -153,8 +159,7 @@ function buildRowsFromWorkHours(sellerRecordId, { weekly }) {
           Activo: false,
           'Hora inicio': defaultRange.start,
           'Hora fin': defaultRange.end,
-          Orden: DAY_ORDER[day] * 10,
-          'Horario personalizado activo': hasEnabledDay
+          Orden: DAY_ORDER[day] * 10
         }
       }];
     }
@@ -166,8 +171,7 @@ function buildRowsFromWorkHours(sellerRecordId, { weekly }) {
         Activo: true,
         'Hora inicio': range.start,
         'Hora fin': range.end,
-        Orden: (DAY_ORDER[day] * 10) + index,
-        'Horario personalizado activo': hasEnabledDay
+        Orden: (DAY_ORDER[day] * 10) + index
       }
     }));
   });
@@ -271,6 +275,7 @@ async function saveWorkHours(sellerRecordId, data = {}) {
 
 module.exports = {
   DAY_KEYS,
+  getDefaultWeeklySchedule,
   getWorkHours,
   listWorkHours,
   saveWorkHours,

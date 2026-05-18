@@ -7,6 +7,7 @@ const {
   listSellers,
   updateSeller
 } = require('../services/sellers.service');
+const { getDefaultWeeklySchedule, listWorkHours, saveWorkHours } = require('../services/work-hours.service');
 
 const router = express.Router();
 
@@ -126,15 +127,17 @@ function hasEditableFields(body = {}) {
 
 router.get('/sellers', async (_req, res) => {
   try {
-    const [sellers, authUsers] = await Promise.all([
+    const [sellers, authUsers, workHoursBySeller] = await Promise.all([
       listSellers(),
-      listAuthUsers()
+      listAuthUsers(),
+      listWorkHours()
     ]);
     const authByEmail = new Map(authUsers.map((user) => [normalizeEmail(user.email), user]));
 
     return res.json(sellers.map((seller) => ({
       ...seller,
-      auth: buildSellerAuthStatus(seller, authByEmail.get(normalizeEmail(seller.correo)))
+      auth: buildSellerAuthStatus(seller, authByEmail.get(normalizeEmail(seller.correo))),
+      workHours: workHoursBySeller?.[seller.recordId] || null
     })));
   } catch (error) {
     return res.status(500).json({
@@ -249,7 +252,14 @@ router.post('/sellers', async (req, res) => {
     }
 
     const seller = await createSeller(req.body);
-    return res.status(201).json(seller);
+    const workHours = await saveWorkHours(seller.recordId, {
+      weekly: getDefaultWeeklySchedule()
+    });
+
+    return res.status(201).json({
+      ...seller,
+      workHours
+    });
   } catch (error) {
     return res.status(500).json({
       error: 'Failed to create seller',

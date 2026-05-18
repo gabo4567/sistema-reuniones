@@ -146,9 +146,10 @@ America/Argentina/Buenos_Aires
 
 Reglas horarias actuales:
 
-- Lunes a viernes: `08:00` a `20:00`.
-- Sabados: `08:00` a `12:00`.
-- Domingos: sin disponibilidad.
+- La disponibilidad se toma desde Airtable, tabla `HorariosVendedoras`.
+- Al crear una vendedora, el backend guarda automaticamente su horario por defecto: lunes a viernes de `08:00` a `12:00` y de `16:00` a `20:00`.
+- Si una vendedora existente no tiene filas cargadas, el backend crea y guarda ese mismo horario personalizado por defecto.
+- Los bloqueos temporales y eventos ocupados de Google Calendar se descuentan sobre ese horario guardado.
 
 El resultado incluye horarios disponibles y usuarios disponibles para cada horario.
 
