@@ -367,6 +367,16 @@ async function isRequestingUserManager(req) {
   }
 }
 
+function findRequestingSellerEntry(entries = [], req) {
+  const email = normalizeEmail(req.authUser?.email || req.session.googleUserEmail || '');
+  if (!email) return null;
+
+  return entries.find((entry) => {
+    return normalizeEmail(entry.user?.email) === email ||
+      normalizeEmail(entry.seller?.correo) === email;
+  }) || null;
+}
+
 function addDaysToDateString(date, daysToAdd) {
   const baseDate = new Date(`${date}T12:00:00-03:00`);
   baseDate.setUTCDate(baseDate.getUTCDate() + daysToAdd);
@@ -1066,10 +1076,10 @@ router.post('/book', async (req, res) => {
     }
 
     const sellerLoadMap = await getSellerLoadMapForDate(date);
+    const canAssignSeller = await isRequestingUserManager(req);
     let assignmentPool = eligibleSellers;
 
     if (hasRequestedSeller) {
-      const canAssignSeller = await isRequestingUserManager(req);
       if (!canAssignSeller) {
         return res.status(403).json({ error: 'Only managers can choose the assigned seller' });
       }
@@ -1080,6 +1090,15 @@ router.post('/book', async (req, res) => {
       }
 
       assignmentPool = [requestedEntry];
+    } else if (!canAssignSeller) {
+      const requestingSellerEntry = findRequestingSellerEntry(eligibleSellers, req);
+      if (!requestingSellerEntry) {
+        return res.status(409).json({
+          error: 'Requesting seller is not eligible for the requested slot'
+        });
+      }
+
+      assignmentPool = [requestingSellerEntry];
     } else {
       assignmentPool = [...eligibleSellers].sort((a, b) => compareSellerLoad(a, b, sellerLoadMap, time));
     }

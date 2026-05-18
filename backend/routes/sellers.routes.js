@@ -22,6 +22,16 @@ function normalizeValue(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function getRoleValue(role) {
+  const roleValue = Array.isArray(role) ? role[0] : role;
+  return String(roleValue || '').trim();
+}
+
+function isValidRole(role) {
+  const normalizedRole = getRoleValue(role).toLowerCase();
+  return !normalizedRole || ['vendedora', 'gerente'].includes(normalizedRole);
+}
+
 function buildSellerAuthStatus(seller, authUser) {
   const hasAccessToken = Boolean(authUser?.access_token);
   const hasRefreshToken = Boolean(authUser?.refresh_token);
@@ -75,6 +85,10 @@ function validateCreateSeller(body = {}) {
     return 'correo must be valid';
   }
 
+  if (!isValidRole(body.rol || body.Rol)) {
+    return 'rol must be Vendedora or Gerente';
+  }
+
   return '';
 }
 
@@ -82,6 +96,10 @@ function validateUpdateSeller(body = {}) {
   const email = body.correo || body.Correo;
   if (email && !isValidEmail(email)) {
     return 'correo must be valid';
+  }
+
+  if (!isValidRole(body.rol || body.Rol)) {
+    return 'rol must be Vendedora or Gerente';
   }
 
   return '';

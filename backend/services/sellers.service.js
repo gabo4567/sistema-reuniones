@@ -19,8 +19,9 @@ const airtableClient = axios.create({
 });
 
 function normalizeRole(role) {
+  const roleValue = Array.isArray(role) ? role[0] : role;
   const normalizedRole = VALID_ROLES.find(
-    (validRole) => validRole.toLowerCase() === String(role || '').toLowerCase()
+    (validRole) => validRole.toLowerCase() === String(roleValue || '').trim().toLowerCase()
   );
 
   return normalizedRole || DEFAULT_ROLE;

@@ -507,6 +507,11 @@ function renderSellersAdminPage() {
             const seller = state.sellers.find((item) => item.recordId === button.dataset.id);
             if (!seller) return;
 
+            if (button.dataset.action === 'toggle-active' && seller.activa) {
+              const confirmed = window.confirm('Desactivar a ' + (seller.nombre || seller.correo || 'esta vendedora') + '? No podra recibir reuniones hasta que se vuelva a activar.');
+              if (!confirmed) return;
+            }
+
             const body = button.dataset.action === 'toggle-active'
               ? {
                   activa: !seller.activa,

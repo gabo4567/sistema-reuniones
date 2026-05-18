@@ -1723,6 +1723,10 @@
           const id = btn.dataset.id;
           if (!id) return;
 
+          const sellerName = btn.closest('.fd-seller-card')?.querySelector('.fd-seller-name')?.textContent?.trim() || 'esta vendedora';
+          const confirmed = window.confirm(`¿Desactivar a ${sellerName}? No podrá recibir reuniones hasta que la vuelvas a activar.`);
+          if (!confirmed) return;
+
           btn.disabled = true;
           btn.textContent = 'Desactivando...';
 
@@ -1750,6 +1754,16 @@
             const currentSellers = await fetchJson(`${API_BASE_URL}/sellers`);
             const seller = currentSellers.find(s => s.recordId === id);
             if (!seller) throw new Error('Vendedora no encontrada');
+
+            if (action === 'toggle-active' && seller.activa) {
+              const sellerName = seller.nombre || seller.correo || 'esta vendedora';
+              const confirmed = window.confirm(`¿Desactivar a ${sellerName}? No podrá recibir reuniones hasta que la vuelvas a activar.`);
+              if (!confirmed) {
+                btn.disabled = false;
+                btn.textContent = 'Desactivar usuaria';
+                return;
+              }
+            }
 
             let body;
             if (action === 'toggle-active') {
@@ -1856,6 +1870,7 @@
             nombre,
             correo,
             telefono,
+            rol: 'Vendedora',
             puede_recibir_reuniones: recibeInput?.checked === true
           })
         });
@@ -1908,6 +1923,7 @@
       const currentUser = await fetchCurrentUser();
       panel.dataset.currentUserRole = currentUser?.usuario?.rol || currentUser?.auth?.rol || '';
       panel.dataset.currentUserEmail = currentUser?.email || '';
+      panel.dataset.currentUserRecordId = currentUser?.usuario?.recordId || '';
       panel.dataset.currentUserAuthenticated = currentUser?.authenticated ? 'true' : 'false';
       renderCurrentUser(panel, currentUser);
       configureRoleTabs(panel, panel.dataset.currentUserRole);
@@ -1926,6 +1942,7 @@
       console.error('Extension FD: error al obtener usuario actual', error);
       panel.dataset.currentUserRole = '';
       panel.dataset.currentUserEmail = '';
+      panel.dataset.currentUserRecordId = '';
       panel.dataset.currentUserAuthenticated = 'false';
       configureRoleTabs(panel, '');
       clearProtectedPanelData(panel, 'No se pudo verificar la sesion. Revisa que el servidor este activo.');
@@ -2029,6 +2046,18 @@
     }) || null;
   }
 
+  function filterAssignableSellersForCurrentUser(panel, sellers = []) {
+    if (isManagerRole(getPanelRole(panel))) return sellers;
+
+    const currentRecordId = panel?.dataset.currentUserRecordId || '';
+    const currentEmail = String(panel?.dataset.currentUserEmail || '').trim().toLowerCase();
+
+    return sellers.filter((seller) => {
+      return (currentRecordId && seller.recordId === currentRecordId) ||
+        (currentEmail && String(seller.correo || '').trim().toLowerCase() === currentEmail);
+    });
+  }
+
   function renderSellerBubbles(sellers = []) {
     return sortSellersByWeeklyLoad(sellers).map((seller) => {
       const recordId = escapeHtml(seller.recordId || '');
@@ -2100,6 +2129,7 @@
     if (!slots.length) {
       panel.dataset.selectedBookingTime = '';
       panel.dataset.selectedBookingSellers = '[]';
+      results.innerHTML = '';
       setAvailabilityMessage(panel, 'No hay disponibilidad para este dia');
       renderBookingAssignmentSelector(panel, []);
       setBookingButtonState(panel, false);
@@ -2112,13 +2142,30 @@
     renderBookingAssignmentSelector(panel, []);
     setBookingButtonState(panel, false);
 
-    results.innerHTML = slots.map(slot => {
-      const availableSellers = sortSellersByWeeklyLoad(getSlotAvailableSellers(slot));
+    const visibleSlots = slots
+      .map((slot) => ({
+        ...slot,
+        available_sellers: filterAssignableSellersForCurrentUser(panel, getSlotAvailableSellers(slot))
+      }))
+      .filter((slot) => slot.available_sellers.length > 0);
+
+    if (!visibleSlots.length) {
+      panel.dataset.selectedBookingTime = '';
+      panel.dataset.selectedBookingSellers = '[]';
+      results.innerHTML = '';
+      setAvailabilityMessage(panel, 'No tenes disponibilidad para este dia');
+      renderBookingAssignmentSelector(panel, []);
+      setBookingButtonState(panel, false);
+      return;
+    }
+
+    results.innerHTML = visibleSlots.map(slot => {
+      const availableSellers = sortSellersByWeeklyLoad(slot.available_sellers);
       return `
       <div class="fd-slot-item availability-slot-item" role="button" tabindex="0" data-time="${escapeHtml(slot.time)}" data-available-sellers="${escapeHtml(JSON.stringify(availableSellers))}" data-selected="false">
         <div class="fd-slot-main">
           <span class="fd-slot-time">${escapeHtml(slot.time)}</span>
-          <span class="fd-slot-users">${slot.available_users.length} disponible${slot.available_users.length === 1 ? '' : 's'}</span>
+          <span class="fd-slot-users">${availableSellers.length} disponible${availableSellers.length === 1 ? '' : 's'}</span>
         </div>
         <div class="fd-slot-sellers" aria-label="Vendedoras disponibles">
           ${renderSellerBubbles(availableSellers)}
