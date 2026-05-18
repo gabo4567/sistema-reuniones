@@ -1,6 +1,7 @@
 const express = require('express');
 const {
   getWorkHours,
+  listWorkHours,
   saveWorkHours,
   DAY_KEYS,
   isValidTime,
@@ -44,6 +45,17 @@ function validateWeekly(weekly = {}) {
 
   return '';
 }
+
+router.get('/work-hours', async (_req, res) => {
+  try {
+    return res.json(await listWorkHours());
+  } catch (error) {
+    return res.status(500).json({
+      error: 'Failed to list work hours',
+      details: error.message
+    });
+  }
+});
 
 router.get('/work-hours/:sellerRecordId', async (req, res) => {
   try {

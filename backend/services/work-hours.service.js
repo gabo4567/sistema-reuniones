@@ -1,9 +1,22 @@
-const fs = require('fs/promises');
-const path = require('path');
+const axios = require('axios');
 
-const STORE_DIR = path.join(__dirname, '..', 'data');
-const STORE_PATH = path.join(STORE_DIR, 'work-hours.json');
+const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY;
+const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID;
+const WORK_HOURS_TABLE_NAME = process.env.WORK_HOURS_TABLE_NAME || 'HorariosVendedoras';
 const DAY_KEYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+const DAY_ORDER = Object.fromEntries(DAY_KEYS.map((day, index) => [day, index + 1]));
+
+if (!AIRTABLE_API_KEY || !AIRTABLE_BASE_ID) {
+  throw new Error('Missing Airtable configuration. Check AIRTABLE_API_KEY and AIRTABLE_BASE_ID.');
+}
+
+const airtableClient = axios.create({
+  baseURL: `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}`,
+  headers: {
+    Authorization: `Bearer ${AIRTABLE_API_KEY}`,
+    'Content-Type': 'application/json'
+  }
+});
 
 function isValidTime(value) {
   return /^\d{2}:\d{2}$/.test(String(value || ''));
@@ -60,53 +73,169 @@ function normalizeWeeklySchedule(weekly = {}, fallbackRanges = []) {
   }));
 }
 
-async function ensureStore() {
-  await fs.mkdir(STORE_DIR, { recursive: true });
-  try {
-    await fs.access(STORE_PATH);
-  } catch (_error) {
-    await fs.writeFile(STORE_PATH, JSON.stringify({}, null, 2));
+function chunk(items, size) {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
   }
+  return chunks;
 }
 
-async function readStore() {
-  await ensureStore();
-  const raw = await fs.readFile(STORE_PATH, 'utf8');
-  try {
-    return JSON.parse(raw || '{}');
-  } catch (_error) {
-    return {};
-  }
+function getLinkedSellerRecordIds(fields = {}) {
+  return Array.isArray(fields.Usuario) ? fields.Usuario : [];
 }
 
-async function writeStore(store) {
-  await ensureStore();
-  await fs.writeFile(STORE_PATH, JSON.stringify(store, null, 2));
+function mapRecordToWorkHourRow(record) {
+  const fields = record.fields || {};
+  return {
+    recordId: record.id,
+    sellerRecordIds: getLinkedSellerRecordIds(fields),
+    day: fields.Dia || '',
+    enabled: fields.Activo === true,
+    start: fields['Hora inicio'] || '',
+    end: fields['Hora fin'] || '',
+    order: Number(fields.Orden || 0),
+    customEnabled: fields['Horario personalizado activo'] === true
+  };
 }
 
-async function getWorkHours(sellerRecordId) {
-  const store = await readStore();
-  const entry = store[sellerRecordId] || {};
-  const weekly = normalizeWeeklySchedule(entry.weekly, entry.ranges || []);
+function buildEmptyWorkHours(sellerRecordId) {
   return {
     sellerRecordId,
-    enabled: entry.enabled === true,
-    ranges: normalizeRanges(entry.ranges || []),
+    enabled: false,
+    ranges: [],
+    weekly: normalizeWeeklySchedule()
+  };
+}
+
+function buildWorkHoursFromRows(sellerRecordId, rows = []) {
+  if (!rows.length) {
+    return buildEmptyWorkHours(sellerRecordId);
+  }
+
+  const enabled = rows.some((row) => row.customEnabled);
+  const defaults = getDefaultWeeklySchedule();
+  const weekly = Object.fromEntries(DAY_KEYS.map((day) => {
+    const dayRows = rows
+      .filter((row) => row.day === day)
+      .sort((a, b) => a.order - b.order);
+    const activeRanges = dayRows
+      .filter((row) => row.enabled)
+      .map((row) => ({ start: row.start, end: row.end }));
+
+    return [
+      day,
+      {
+        enabled: dayRows.some((row) => row.enabled) && normalizeRanges(activeRanges).length > 0,
+        ranges: normalizeRanges(activeRanges.length ? activeRanges : defaults[day].ranges)
+      }
+    ];
+  }));
+
+  return {
+    sellerRecordId,
+    enabled,
+    ranges: [],
     weekly
   };
 }
 
-async function listWorkHours() {
-  const store = await readStore();
-  return Object.fromEntries(
-    Object.entries(store).map(([sellerRecordId, entry]) => [
-      sellerRecordId,
-      {
-        sellerRecordId,
-        enabled: entry.enabled === true,
-        ranges: normalizeRanges(entry.ranges || []),
-        weekly: normalizeWeeklySchedule(entry.weekly, entry.ranges || [])
+function buildRowsFromWorkHours(sellerRecordId, { enabled, weekly }) {
+  return DAY_KEYS.flatMap((day) => {
+    const dayConfig = weekly[day] || { enabled: false, ranges: [] };
+    if (!dayConfig.enabled) {
+      return [{
+        fields: {
+          Usuario: [sellerRecordId],
+          Dia: day,
+          Activo: false,
+          'Hora inicio': '',
+          'Hora fin': '',
+          Orden: DAY_ORDER[day] * 10,
+          'Horario personalizado activo': enabled
+        }
+      }];
+    }
+
+    return dayConfig.ranges.map((range, index) => ({
+      fields: {
+        Usuario: [sellerRecordId],
+        Dia: day,
+        Activo: true,
+        'Hora inicio': range.start,
+        'Hora fin': range.end,
+        Orden: (DAY_ORDER[day] * 10) + index,
+        'Horario personalizado activo': enabled
       }
+    }));
+  });
+}
+
+async function listRawWorkHourRows() {
+  const records = [];
+  let offset = '';
+
+  do {
+    const response = await airtableClient.get(`/${WORK_HOURS_TABLE_NAME}`, {
+      params: {
+        ...(offset ? { offset } : {}),
+        sort: [
+          { field: 'Dia', direction: 'asc' },
+          { field: 'Orden', direction: 'asc' }
+        ]
+      }
+    });
+
+    records.push(...(response.data.records || []));
+    offset = response.data.offset || '';
+  } while (offset);
+
+  return records.map(mapRecordToWorkHourRow);
+}
+
+async function listRowsForSeller(sellerRecordId) {
+  const rows = await listRawWorkHourRows();
+  return rows.filter((row) => row.sellerRecordIds.includes(sellerRecordId));
+}
+
+async function deleteRows(recordIds = []) {
+  for (const batch of chunk(recordIds, 10)) {
+    const params = new URLSearchParams();
+    batch.forEach((recordId) => params.append('records[]', recordId));
+
+    await airtableClient.delete(`/${WORK_HOURS_TABLE_NAME}`, {
+      params
+    });
+  }
+}
+
+async function createRows(rows = []) {
+  for (const batch of chunk(rows, 10)) {
+    await airtableClient.post(`/${WORK_HOURS_TABLE_NAME}`, {
+      records: batch
+    });
+  }
+}
+
+async function getWorkHours(sellerRecordId) {
+  const rows = await listRowsForSeller(sellerRecordId);
+  return buildWorkHoursFromRows(sellerRecordId, rows);
+}
+
+async function listWorkHours() {
+  const rows = await listRawWorkHourRows();
+  const rowsBySeller = rows.reduce((acc, row) => {
+    row.sellerRecordIds.forEach((sellerRecordId) => {
+      if (!acc[sellerRecordId]) acc[sellerRecordId] = [];
+      acc[sellerRecordId].push(row);
+    });
+    return acc;
+  }, {});
+
+  return Object.fromEntries(
+    Object.entries(rowsBySeller).map(([sellerRecordId, sellerRows]) => [
+      sellerRecordId,
+      buildWorkHoursFromRows(sellerRecordId, sellerRows)
     ])
   );
 }
@@ -115,9 +244,12 @@ async function saveWorkHours(sellerRecordId, data = {}) {
   const weekly = normalizeWeeklySchedule(data.weekly, data.ranges || []);
   const hasEnabledDay = DAY_KEYS.some((day) => weekly[day].enabled && weekly[day].ranges.length > 0);
   const enabled = data.enabled === true && hasEnabledDay;
-  const store = await readStore();
-  store[sellerRecordId] = { enabled, weekly };
-  await writeStore(store);
+  const existingRows = await listRowsForSeller(sellerRecordId);
+  const nextRows = buildRowsFromWorkHours(sellerRecordId, { enabled, weekly });
+
+  await deleteRows(existingRows.map((row) => row.recordId));
+  await createRows(nextRows);
+
   return getWorkHours(sellerRecordId);
 }
 

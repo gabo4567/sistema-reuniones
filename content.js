@@ -739,6 +739,10 @@
     return fetchJson(`${API_BASE_URL}/work-hours/${encodeURIComponent(recordId)}`);
   }
 
+  async function fetchAllWorkHours() {
+    return fetchJson(`${API_BASE_URL}/work-hours`);
+  }
+
   async function saveWorkHours(recordId, { enabled, ranges, weekly }) {
     return fetchJson(`${API_BASE_URL}/work-hours/${encodeURIComponent(recordId)}`, {
       method: 'PATCH',
@@ -1555,6 +1559,22 @@
     return 'El usuario debe iniciar sesion con Google desde la extension.';
   }
 
+  function formatWorkHoursSummary(workHours) {
+    if (!workHours) return 'Sin horario personalizado cargado.';
+    if (workHours.enabled !== true) return 'Horario personalizado desactivado.';
+
+    const activeDays = WORK_HOUR_DAYS
+      .map(([day, label]) => {
+        const config = workHours.weekly?.[day];
+        if (!config?.enabled || !Array.isArray(config.ranges) || !config.ranges.length) return '';
+        const ranges = config.ranges.map((range) => `${range.start}-${range.end}`).join(', ');
+        return `${label}: ${ranges}`;
+      })
+      .filter(Boolean);
+
+    return activeDays.length ? activeDays.join(' | ') : 'Sin dias activos.';
+  }
+
   async function loadSellersIntoView(view) {
     const panel = view?.closest('#custom-side-panel');
     if (!isManagerRole(getPanelRole(panel))) return;
@@ -1564,7 +1584,15 @@
     listEl.innerHTML = '<div class="fd-empty-state">Cargando vendedoras...</div>';
 
     try {
-      const sellers = await fetchJson(`${API_BASE_URL}/sellers`);
+      let workHoursLoadError = false;
+      const [sellers, workHoursBySeller] = await Promise.all([
+        fetchJson(`${API_BASE_URL}/sellers`),
+        fetchAllWorkHours().catch((error) => {
+          console.error('Extension FD: error al cargar horarios laborales de equipo', error);
+          workHoursLoadError = true;
+          return {};
+        })
+      ]);
       if (!sellers.length) {
         listEl.innerHTML = '<div class="fd-empty-state">Sin vendedoras registradas.</div>';
         return;
@@ -1577,6 +1605,12 @@
           <div class="fd-team-readiness-title">Estado de autorizacion Google</div>
           <div class="fd-team-readiness-text">${readyCount}/${sellers.length} usuarios listos para Calendar${pendingCount ? `. Faltan ${pendingCount}.` : '.'}</div>
         </div>
+        ${workHoursLoadError ? `
+        <div class="fd-team-readiness fd-team-readiness--warning">
+          <div class="fd-team-readiness-title">Horarios personalizados</div>
+          <div class="fd-team-readiness-text">No se pudieron cargar los horarios. Revisa que la tabla de Airtable exista.</div>
+        </div>
+        ` : ''}
       `;
 
       listEl.innerHTML = readinessHTML + sellers.map(seller => {
@@ -1586,6 +1620,7 @@
         const authReady = auth.ready === true;
         const rid = escapeHtml(seller.recordId || '');
         const sellerColorStyle = getUserColorStyle(seller.color);
+        const workHoursSummary = formatWorkHoursSummary(workHoursBySeller?.[seller.recordId]);
         return `
           <div class="fd-seller-card" data-seller-id="${rid}" ${sellerColorStyle ? `style="${sellerColorStyle}"` : ''}>
             <div class="fd-seller-top">
@@ -1597,6 +1632,7 @@
               </div>
             </div>
             <div class="fd-seller-email">${escapeHtml(seller.correo || '')}${seller.telefono ? ` · ${escapeHtml(seller.telefono)}` : ''}</div>
+            <div class="fd-seller-work-hours"><strong>Horario:</strong> ${escapeHtml(workHoursSummary)}</div>
             ${authReady ? '' : `<div class="fd-seller-auth-warning">${escapeHtml(getSellerAuthHelpText(auth.reason))}</div>`}
             <div class="fd-seller-actions">
               <button type="button" class="fd-seller-btn fd-seller-edit" data-id="${rid}">Editar</button>

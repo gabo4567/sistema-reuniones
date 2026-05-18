@@ -2040,6 +2040,21 @@
   line-height: 1.35;
 }
 
+.fd-seller-work-hours {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: var(--fd-radius-sm);
+  background: var(--fd-bg-card);
+  color: var(--fd-text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.fd-seller-work-hours strong {
+  color: var(--fd-text-primary);
+}
+
 .fd-seller-actions {
   display: flex;
   gap: 5px;
