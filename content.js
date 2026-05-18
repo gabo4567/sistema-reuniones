@@ -1364,7 +1364,9 @@
           <strong>Bloqueos temporales</strong>
           <span>Bloquea un dia o un rango de fechas completo para vacaciones o ausencias.</span>
         </div>
+        <label class="fd-block-date-label" for="fd-block-date">Desde</label>
         <input id="fd-block-date" type="date" />
+        <label class="fd-block-date-label" for="fd-block-end-date">Hasta</label>
         <input id="fd-block-end-date" type="date" />
         <textarea id="fd-block-reason" rows="2" placeholder="Motivo opcional"></textarea>
         <button type="button" id="fd-block-day-btn">Crear bloqueo</button>
