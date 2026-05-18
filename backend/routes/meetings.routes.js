@@ -305,10 +305,7 @@ function isSlotBusy(startDateTime, endDateTime, busyTimes = []) {
 }
 
 function normalizeSellerName(value) {
-  const sellerOptions = ['FLORENCIA', 'SILVINA', 'ITATI', 'SARITA', 'ORNELLA', 'LIZ', 'INES', 'Milbia'];
-  const normalizedValue = String(value || '').toLowerCase();
-
-  return sellerOptions.find((seller) => normalizedValue.includes(seller.toLowerCase())) || '';
+  return String(value || '').trim();
 }
 
 function normalizeMeetingPhase(value) {
@@ -489,8 +486,7 @@ async function getSellerLoadMapForDate(date) {
 async function getSellerNameFromUser(user) {
   try {
     const businessUser = await getBusinessUserByEmail(user.email);
-    const businessUserName = businessUser?.fields?.Nombre;
-    const sellerName = normalizeSellerName(businessUserName);
+    const sellerName = normalizeSellerName(businessUser?.fields?.Nombre);
     if (sellerName) {
       return sellerName;
     }
@@ -498,7 +494,7 @@ async function getSellerNameFromUser(user) {
     console.error(`Error buscando usuario interno ${user.email}:`, error.response?.data || error.message);
   }
 
-  return normalizeSellerName(String(user?.email || '').split('@')[0]);
+  return String(user?.email || '').split('@')[0].trim();
 }
 
 async function getAssignedByName(req) {
