@@ -446,6 +446,78 @@ function isMeetingInRange(meetingDate, startDateTime, endDateTime) {
     value < new Date(endDateTime).getTime();
 }
 
+function isCancelledMeetingStatus(status = '') {
+  const normalizedStatus = normalizeLookupValue(status);
+  return normalizedStatus === 'cancelada' ||
+    normalizedStatus === 'cancelado' ||
+    normalizedStatus === 'canceled' ||
+    normalizedStatus === 'cancelled';
+}
+
+function getMeetingDurationMinutes(fields = {}) {
+  const duration = Number(fields.Duracion || fields['Duracion'] || fields['Duración'] || fields['Duracion minutos']);
+  return Number.isFinite(duration) && duration > 0 ? duration : 30;
+}
+
+function getMeetingBusyRange(record) {
+  const fields = record?.fields || {};
+  const start = fields.Fecha;
+  if (!start || isCancelledMeetingStatus(fields.ESTADO)) return null;
+
+  const startDate = new Date(start);
+  if (Number.isNaN(startDate.getTime())) return null;
+
+  const endDate = new Date(startDate.getTime() + (getMeetingDurationMinutes(fields) * 60 * 1000));
+  return {
+    start: startDate.toISOString(),
+    end: endDate.toISOString()
+  };
+}
+
+function meetingMatchesSeller(record, entry) {
+  const sellerName = normalizeLookupValue(record?.fields?.Vendedora);
+  if (!sellerName) return false;
+
+  const names = [
+    getEntryDisplayName(entry),
+    entry?.seller?.nombre,
+    entry?.seller?.correo,
+    entry?.user?.email
+  ].map(normalizeLookupValue).filter(Boolean);
+
+  return names.some((name) => name === sellerName || name.includes(sellerName) || sellerName.includes(name));
+}
+
+function getAirtableMeetingBusyTimesForSeller(entry, meetings = [], { excludeRecordId = '' } = {}) {
+  return meetings
+    .filter((record) => record?.id !== excludeRecordId)
+    .filter((record) => meetingMatchesSeller(record, entry))
+    .map(getMeetingBusyRange)
+    .filter(Boolean);
+}
+
+async function getAirtableBusyBySeller(entries = [], date, options = {}) {
+  const { dayStart, dayEnd } = getRangeBounds(date);
+  const meetings = await listMeetingsByDateRange(dayStart, dayEnd);
+
+  return Object.fromEntries(entries.map((entry) => [
+    entry.seller.recordId,
+    getAirtableMeetingBusyTimesForSeller(entry, meetings, options)
+  ]));
+}
+
+function isActiveFutureMeeting(record, { excludeRecordId = '' } = {}) {
+  if (!record || record.id === excludeRecordId) return false;
+  const range = getMeetingBusyRange(record);
+  if (!range) return false;
+  return new Date(range.end).getTime() > Date.now();
+}
+
+async function findActiveFutureMeetingForPhone(phone, options = {}) {
+  const meetings = await getMeetingsByPhone(phone);
+  return meetings.find((record) => isActiveFutureMeeting(record, options)) || null;
+}
+
 function buildSellerLoadMap(records = [], date) {
   const { dayStart, dayEnd } = getRangeBounds(date);
   const loadMap = new Map();
@@ -712,10 +784,15 @@ async function getEligibleSellerEntries(authUsers, { date, startDateTime, endDat
     .filter(({ seller }) => isWithinCustomWorkHours(seller.recordId, date, startDateTime, endDateTime, workHoursBySeller));
 }
 
-async function findAvailableUser(entries, startDateTime, endDateTime) {
+async function findAvailableUser(entries, startDateTime, endDateTime, busyBySeller = {}) {
   for (const entry of entries) {
     const user = entry.user;
     try {
+      const sellerBusyTimes = busyBySeller[entry.seller.recordId] || [];
+      if (isSlotBusy(startDateTime, endDateTime, sellerBusyTimes)) {
+        continue;
+      }
+
       const busyTimes = await getBusyTimes(user, startDateTime, endDateTime);
       if (!isSlotBusy(startDateTime, endDateTime, busyTimes)) {
         return entry;
@@ -1112,6 +1189,15 @@ router.post('/book', async (req, res) => {
   }
 
   try {
+    const existingMeeting = await findActiveFutureMeetingForPhone(telefono);
+    if (existingMeeting) {
+      return res.status(409).json({
+        error: 'Client already has an active meeting',
+        message: 'Este cliente ya tiene una reunion activa o futura asignada.',
+        meetingRecordId: existingMeeting.id
+      });
+    }
+
     const activeUsers = await getActiveUsers();
     const eligibleSellers = await getEligibleSellerEntries(activeUsers, { date, startDateTime, endDateTime });
     if (!eligibleSellers.length) {
@@ -1146,7 +1232,8 @@ router.post('/book', async (req, res) => {
       assignmentPool = [...eligibleSellers].sort((a, b) => compareSellerLoad(a, b, sellerLoadMap, time));
     }
 
-    const assignedEntry = await findAvailableUser(assignmentPool, startDateTime, endDateTime);
+    const airtableBusyBySeller = await getAirtableBusyBySeller(assignmentPool, date);
+    const assignedEntry = await findAvailableUser(assignmentPool, startDateTime, endDateTime, airtableBusyBySeller);
     if (!assignedEntry) {
       return res.status(409).json({
         error: hasRequestedSeller
@@ -1256,6 +1343,7 @@ router.get('/availability', async (req, res) => {
     const operationalSellerEntries = await getOperationalSellerEntries(loggedUsers);
     const sellerBlocks = await listSellerBlocks();
     const workHoursBySeller = await listWorkHours();
+    const airtableBusyBySeller = await getAirtableBusyBySeller(operationalSellerEntries, date);
     const busyByUser = {};
 
     if (operationalSellerEntries.length === 0) {
@@ -1277,7 +1365,8 @@ router.get('/availability', async (req, res) => {
         const busyTimes = await getBusyTimes(user, timeMin, timeMax);
         const blockBusyTimes = getSellerBlockBusyTimes(seller.recordId, date, sellerBlocks);
         const workHourBusyTimes = getCustomWorkHourBusyTimes(seller.recordId, date, workHoursBySeller);
-        busyByUser[seller.nombre || user.email] = [...busyTimes, ...blockBusyTimes, ...workHourBusyTimes];
+        const airtableBusyTimes = airtableBusyBySeller[seller.recordId] || [];
+        busyByUser[seller.nombre || user.email] = [...busyTimes, ...blockBusyTimes, ...workHourBusyTimes, ...airtableBusyTimes];
       } catch (userError) {
         console.error(`Error procesando usuario ${user.email}:`, userError.response?.data || userError.message);
       }
@@ -1379,7 +1468,8 @@ router.post('/reschedule', async (req, res) => {
       return res.status(409).json({ error: 'No active sellers available for the new slot' });
     }
 
-    const assignedEntry = await findAvailableUser(eligibleSellers, startDateTime, endDateTime);
+    const airtableBusyBySeller = await getAirtableBusyBySeller(eligibleSellers, date, { excludeRecordId: recordId });
+    const assignedEntry = await findAvailableUser(eligibleSellers, startDateTime, endDateTime, airtableBusyBySeller);
     if (!assignedEntry) {
       return res.status(409).json({ error: 'No sellers available for the requested time' });
     }

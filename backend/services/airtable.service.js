@@ -38,6 +38,20 @@ function normalizeMeetingFields(fields = {}) {
   return normalizedFields;
 }
 
+function isAirtableSelectOptionError(error) {
+  const details = error.response?.data || error;
+  const message = JSON.stringify(details);
+  return message.includes('INVALID_MULTIPLE_CHOICE_OPTIONS') ||
+    message.includes('Insufficient permissions to create new select option');
+}
+
+function removeAssignmentSelectFields(fields = {}) {
+  const fallbackFields = { ...fields };
+  delete fallbackFields.Vendedora;
+  delete fallbackFields['Asignado por'];
+  return fallbackFields;
+}
+
 async function getContactByPhone(phone) {
   const formula = `{Telefono}="${escapeFormulaValue(phone)}"`;
   const response = await airtableClient.get(`/${CLIENTS_TABLE_NAME}`, {
@@ -192,26 +206,59 @@ async function listMeetingsByDateRange(startIso, endIso) {
 }
 
 async function updateMeeting(recordId, data) {
-  const response = await airtableClient.patch(`/${MEETINGS_TABLE_NAME}`, {
-    records: [
-      {
-        id: recordId,
-        fields: normalizeMeetingFields(data)
-      }
-    ]
-  });
+  let response;
+  try {
+    response = await airtableClient.patch(`/${MEETINGS_TABLE_NAME}`, {
+      records: [
+        {
+          id: recordId,
+          fields: normalizeMeetingFields(data)
+        }
+      ]
+    });
+  } catch (error) {
+    if (!isAirtableSelectOptionError(error)) {
+      throw error;
+    }
+
+    console.warn('Airtable rejected select option while updating meeting. Retrying without Vendedora/Asignado por.', error.response?.data || error.message);
+    response = await airtableClient.patch(`/${MEETINGS_TABLE_NAME}`, {
+      records: [
+        {
+          id: recordId,
+          fields: normalizeMeetingFields(removeAssignmentSelectFields(data))
+        }
+      ]
+    });
+  }
 
   return response.data.records?.[0] || null;
 }
 
 async function createMeeting(data) {
-  const response = await airtableClient.post(`/${MEETINGS_TABLE_NAME}`, {
-    records: [
-      {
-        fields: normalizeMeetingFields(data)
-      }
-    ]
-  });
+  let response;
+  try {
+    response = await airtableClient.post(`/${MEETINGS_TABLE_NAME}`, {
+      records: [
+        {
+          fields: normalizeMeetingFields(data)
+        }
+      ]
+    });
+  } catch (error) {
+    if (!isAirtableSelectOptionError(error)) {
+      throw error;
+    }
+
+    console.warn('Airtable rejected select option while creating meeting. Retrying without Vendedora/Asignado por.', error.response?.data || error.message);
+    response = await airtableClient.post(`/${MEETINGS_TABLE_NAME}`, {
+      records: [
+        {
+          fields: normalizeMeetingFields(removeAssignmentSelectFields(data))
+        }
+      ]
+    });
+  }
 
   return response.data.records?.[0] || null;
 }

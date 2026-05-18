@@ -2482,7 +2482,11 @@
       } catch (error) {
         console.error('Extension FD: error al agendar reunion', error);
         const errorMessage = String(error?.message || '');
-        if (error?.status === 409 || errorMessage.includes('Selected seller is not available')) {
+        if (errorMessage.includes('Client already has an active meeting')) {
+          clearSelectedBookingSlot(panel);
+          setBookingMessage(panel, 'Este cliente ya tiene una reunion activa o futura asignada.', true);
+          setBookingButtonState(panel, false);
+        } else if (error?.status === 409 || errorMessage.includes('Selected seller is not available')) {
           clearSelectedBookingSlot(panel);
           setBookingMessage(panel, 'La vendedora seleccionada ya no esta disponible para ese horario. Consulta disponibilidad nuevamente.', true);
           setBookingButtonState(panel, false);
