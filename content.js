@@ -683,6 +683,12 @@
     return `${year}-${month}-${day}`;
   }
 
+  function isPastAvailabilitySlot(date, time) {
+    if (!date || !time) return false;
+    const slotStart = new Date(`${date}T${time}:00`);
+    return !Number.isNaN(slotStart.getTime()) && slotStart <= new Date();
+  }
+
   async function fetchAvailability(date, duration) {
     const params = new URLSearchParams({
       date,
@@ -757,7 +763,28 @@
     });
   }
 
-  async function createSellerBlock({ usuarioRecordId, fecha, todoElDia = true, horaInicio = '', horaFin = '', motivo }) {
+  async function fetchSellerBlocks() {
+    return fetchJson(`${API_BASE_URL}/seller-blocks`);
+  }
+
+  function getDateRangeValues(startDate, endDate = startDate) {
+    const start = new Date(`${startDate}T00:00:00`);
+    const end = new Date(`${endDate || startDate}T00:00:00`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return [];
+
+    const values = [];
+    const cursor = new Date(start);
+    while (cursor <= end) {
+      const year = cursor.getFullYear();
+      const month = String(cursor.getMonth() + 1).padStart(2, '0');
+      const day = String(cursor.getDate()).padStart(2, '0');
+      values.push(`${year}-${month}-${day}`);
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return values;
+  }
+
+  async function createSellerBlockForDate({ usuarioRecordId, fecha, motivo }) {
     return fetchJson(`${API_BASE_URL}/seller-blocks`, {
       method: 'POST',
       headers: {
@@ -767,13 +794,22 @@
         id: `bloq-${usuarioRecordId}-${fecha}-${Date.now()}`,
         usuarioRecordId,
         fecha,
-        todo_el_dia: Boolean(todoElDia),
-        hora_inicio: todoElDia ? '' : horaInicio,
-        hora_fin: todoElDia ? '' : horaFin,
+        todo_el_dia: true,
+        hora_inicio: '',
+        hora_fin: '',
         motivo: motivo || 'Bloqueo creado desde la extension',
         activo: true
       })
     });
+  }
+
+  async function createSellerBlock({ usuarioRecordId, fecha, fechaFin = '', motivo }) {
+    const dates = getDateRangeValues(fecha, fechaFin || fecha);
+    const blocks = [];
+    for (const blockDate of dates) {
+      blocks.push(await createSellerBlockForDate({ usuarioRecordId, fecha: blockDate, motivo }));
+    }
+    return blocks;
   }
 
   function escapeHtml(value) {
@@ -1326,19 +1362,13 @@
         ` : ''}
         <div>
           <strong>Bloqueos temporales</strong>
-          <span>Usa dia completo para hoy o vacaciones, o rango horario para cortes puntuales.</span>
+          <span>Bloquea un dia o un rango de fechas completo para vacaciones o ausencias.</span>
         </div>
-        <select id="fd-block-type">
-          <option value="day">Dia completo</option>
-          <option value="range">Rango horario</option>
-        </select>
         <input id="fd-block-date" type="date" />
-        <div id="fd-block-time-row" class="fd-time-row" hidden>
-          <input id="fd-block-start" type="time" value="14:00" />
-          <input id="fd-block-end" type="time" value="18:00" />
-        </div>
+        <input id="fd-block-end-date" type="date" />
         <textarea id="fd-block-reason" rows="2" placeholder="Motivo opcional"></textarea>
         <button type="button" id="fd-block-day-btn">Crear bloqueo</button>
+        <div id="fd-own-blocks-list"></div>
         <div id="fd-role-action-message" class="fd-role-action-message"></div>
       </div>
     `;
@@ -1346,17 +1376,18 @@
     const receiveToggle = container.querySelector('#fd-receive-toggle');
     const workHoursSave = container.querySelector('#fd-work-hours-save');
     const workHoursList = container.querySelector('#fd-work-hours-list');
-    const blockType = container.querySelector('#fd-block-type');
     const dateInput = container.querySelector('#fd-block-date');
-    const timeRow = container.querySelector('#fd-block-time-row');
-    const startInput = container.querySelector('#fd-block-start');
-    const endInput = container.querySelector('#fd-block-end');
+    const endDateInput = container.querySelector('#fd-block-end-date');
     const reasonInput = container.querySelector('#fd-block-reason');
     const blockButton = container.querySelector('#fd-block-day-btn');
 
     if (dateInput && !dateInput.value) {
       dateInput.value = getTodayDateValue();
       dateInput.min = getTodayDateValue();
+    }
+    if (endDateInput && !endDateInput.value) {
+      endDateInput.value = dateInput?.value || getTodayDateValue();
+      endDateInput.min = dateInput?.value || getTodayDateValue();
     }
 
     if (canUseCustomWorkHours && workHoursList) {
@@ -1434,11 +1465,14 @@
       }
     });
 
-    blockType?.addEventListener('change', () => {
-      const isRange = blockType.value === 'range';
-      if (timeRow) timeRow.hidden = !isRange;
-      if (startInput) startInput.disabled = !isRange;
-      if (endInput) endInput.disabled = !isRange;
+    loadOwnSellerBlocks(panel, usuario.recordId);
+
+    dateInput?.addEventListener('change', () => {
+      if (!endDateInput) return;
+      endDateInput.min = dateInput.value || getTodayDateValue();
+      if (!endDateInput.value || endDateInput.value < endDateInput.min) {
+        endDateInput.value = endDateInput.min;
+      }
     });
 
     receiveToggle?.addEventListener('click', async () => {
@@ -1464,21 +1498,14 @@
 
     blockButton?.addEventListener('click', async () => {
       const fecha = dateInput?.value || '';
-      const isRange = blockType?.value === 'range';
-      const horaInicio = startInput?.value || '';
-      const horaFin = endInput?.value || '';
+      const fechaFin = endDateInput?.value || fecha;
       if (!fecha) {
-        setRoleActionMessage(panel, 'Selecciona una fecha para bloquear.', true);
+        setRoleActionMessage(panel, 'Selecciona una fecha de inicio para bloquear.', true);
         return;
       }
 
-      if (isRange && (!horaInicio || !horaFin)) {
-        setRoleActionMessage(panel, 'Completa hora de inicio y fin.', true);
-        return;
-      }
-
-      if (isRange && horaInicio >= horaFin) {
-        setRoleActionMessage(panel, 'La hora de fin debe ser posterior al inicio.', true);
+      if (fechaFin < fecha) {
+        setRoleActionMessage(panel, 'La fecha de fin debe ser igual o posterior al inicio.', true);
         return;
       }
 
@@ -1490,13 +1517,12 @@
         await createSellerBlock({
           usuarioRecordId: usuario.recordId,
           fecha,
-          todoElDia: !isRange,
-          horaInicio,
-          horaFin,
+          fechaFin,
           motivo: reasonInput?.value || ''
         });
-        setRoleActionMessage(panel, isRange ? 'Rango horario bloqueado correctamente.' : 'Dia bloqueado correctamente.');
+        setRoleActionMessage(panel, 'Bloqueo creado correctamente.');
         if (reasonInput) reasonInput.value = '';
+        await loadOwnSellerBlocks(panel, usuario.recordId);
         panel.dataset.selectedBookingTime = '';
         setBookingButtonState(panel, false);
         setAvailabilityMessage(panel, 'Bloqueo creado. Volve a consultar disponibilidad si necesitas revisar horarios.');
@@ -1571,6 +1597,50 @@
     return activeDays.length ? activeDays.join(' | ') : 'Sin dias activos.';
   }
 
+  function formatSellerBlockRange(block) {
+    const start = block?.fecha || '';
+    const end = block?.fecha_fin || start;
+    if (!start) return 'Sin fecha';
+    return end && end !== start ? `${start} a ${end}` : start;
+  }
+
+  function getBlocksForSeller(blocks = [], sellerRecordId = '') {
+    return blocks
+      .filter((block) => block?.activo !== false)
+      .filter((block) => Array.isArray(block.usuario) && block.usuario.includes(sellerRecordId))
+      .sort((a, b) => String(a.fecha || '').localeCompare(String(b.fecha || '')));
+  }
+
+  function renderSellerBlocksList(blocks = [], emptyText = 'Sin bloqueos aplicados.') {
+    if (!blocks.length) {
+      return `<div class="fd-empty-state">${escapeHtml(emptyText)}</div>`;
+    }
+
+    return `
+      <div class="fd-seller-blocks-list">
+        ${blocks.map((block) => `
+          <div class="fd-seller-work-hours">
+            <strong>${escapeHtml(formatSellerBlockRange(block))}</strong>${block.motivo ? ` - ${escapeHtml(block.motivo)}` : ''}
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  async function loadOwnSellerBlocks(panel, sellerRecordId) {
+    const list = panel?.querySelector('#fd-own-blocks-list');
+    if (!list || !sellerRecordId) return;
+
+    list.innerHTML = '<div class="fd-empty-state">Cargando bloqueos...</div>';
+    try {
+      const blocks = await fetchSellerBlocks();
+      list.innerHTML = renderSellerBlocksList(getBlocksForSeller(blocks, sellerRecordId));
+    } catch (error) {
+      console.error('Extension FD: error al cargar bloqueos propios', error);
+      list.innerHTML = '<div class="fd-msg fd-msg--error">No se pudieron cargar los bloqueos.</div>';
+    }
+  }
+
   async function loadSellersIntoView(view) {
     const panel = view?.closest('#custom-side-panel');
     if (!isManagerRole(getPanelRole(panel))) return;
@@ -1581,12 +1651,18 @@
 
     try {
       let workHoursLoadError = false;
-      const [sellers, workHoursBySeller] = await Promise.all([
+      let blocksLoadError = false;
+      const [sellers, workHoursBySeller, sellerBlocks] = await Promise.all([
         fetchJson(`${API_BASE_URL}/sellers`),
         fetchAllWorkHours().catch((error) => {
           console.error('Extension FD: error al cargar horarios laborales de equipo', error);
           workHoursLoadError = true;
           return {};
+        }),
+        fetchSellerBlocks().catch((error) => {
+          console.error('Extension FD: error al cargar bloqueos de equipo', error);
+          blocksLoadError = true;
+          return [];
         })
       ]);
       if (!sellers.length) {
@@ -1607,6 +1683,12 @@
           <div class="fd-team-readiness-text">No se pudieron cargar los horarios. Revisa que la tabla de Airtable exista.</div>
         </div>
         ` : ''}
+        ${blocksLoadError ? `
+        <div class="fd-team-readiness fd-team-readiness--warning">
+          <div class="fd-team-readiness-title">Bloqueos temporales</div>
+          <div class="fd-team-readiness-text">No se pudieron cargar los bloqueos de las vendedoras.</div>
+        </div>
+        ` : ''}
       `;
 
       listEl.innerHTML = readinessHTML + sellers.map(seller => {
@@ -1617,6 +1699,10 @@
         const rid = escapeHtml(seller.recordId || '');
         const sellerColorStyle = getUserColorStyle(seller.color);
         const workHoursSummary = formatWorkHoursSummary(workHoursBySeller?.[seller.recordId]);
+        const sellerBlocksSummary = renderSellerBlocksList(
+          getBlocksForSeller(sellerBlocks, seller.recordId),
+          'Sin bloqueos aplicados.'
+        );
         return `
           <div class="fd-seller-card" data-seller-id="${rid}" ${sellerColorStyle ? `style="${sellerColorStyle}"` : ''}>
             <div class="fd-seller-top">
@@ -1629,6 +1715,8 @@
             </div>
             <div class="fd-seller-email">${escapeHtml(seller.correo || '')}${seller.telefono ? ` · ${escapeHtml(seller.telefono)}` : ''}</div>
             <div class="fd-seller-work-hours"><strong>Horario:</strong> ${escapeHtml(workHoursSummary)}</div>
+            <div class="fd-seller-work-hours"><strong>Bloqueos:</strong></div>
+            ${sellerBlocksSummary}
             ${authReady ? '' : `<div class="fd-seller-auth-warning">${escapeHtml(getSellerAuthHelpText(auth.reason))}</div>`}
             <div class="fd-seller-actions">
               <button type="button" class="fd-seller-btn fd-seller-edit" data-id="${rid}">Editar</button>
@@ -1870,8 +1958,11 @@
             puede_recibir_reuniones: recibeInput?.checked === true
           })
         });
-        if (createdSeller?.recordId && !createdSeller?.workHours) {
-          await fetchWorkHours(createdSeller.recordId);
+        if (createdSeller?.recordId) {
+          await saveWorkHours(createdSeller.recordId, {
+            enabled: true,
+            weekly: getDefaultWeeklyWorkHours()
+          });
         }
 
         if (idInput) idInput.value = '';
@@ -2119,7 +2210,7 @@
     slotItem.insertAdjacentElement('afterend', shell);
   }
 
-  function renderAvailabilityResults(panel, slots = []) {
+  function renderAvailabilityResults(panel, slots = [], date = '') {
     const results = panel?.querySelector('#availability-results');
     if (!results) return;
 
@@ -2142,6 +2233,7 @@
     setBookingButtonState(panel, false);
 
     const visibleSlots = slots
+      .filter((slot) => !isPastAvailabilitySlot(date, slot.time))
       .map((slot) => ({
         ...slot,
         available_sellers: filterAssignableSellersForCurrentUser(panel, getSlotAvailableSellers(slot))
@@ -2223,7 +2315,8 @@
           throw new Error('Invalid availability response');
         }
 
-        renderAvailabilityResults(panel, availability);
+        panel.dataset.availabilityDate = date;
+        renderAvailabilityResults(panel, availability, date);
       } catch (error) {
         console.error('Extension FD: error al cargar disponibilidad', error);
         setAvailabilityMessage(panel, 'Error al cargar disponibilidad', true);
@@ -2236,6 +2329,12 @@
     results?.addEventListener('click', (event) => {
       const item = event.target.closest('.availability-slot-item');
       if (!item) return;
+      if (isPastAvailabilitySlot(dateInput?.value || panel.dataset.availabilityDate || '', item.dataset.time || '')) {
+        item.remove();
+        setBookingMessage(panel, 'Ese horario ya paso. Consulta disponibilidad nuevamente.', true);
+        setBookingButtonState(panel, false);
+        return;
+      }
       const sellerBubble = event.target.closest('.fd-seller-bubble');
       const wasSelected = item.dataset.selected === 'true';
 
@@ -2344,6 +2443,12 @@
 
       if (!date || !time) {
         setBookingMessage(panel, 'Selecciona un horario disponible antes de agendar.', true);
+        return;
+      }
+
+      if (isPastAvailabilitySlot(date, time)) {
+        clearSelectedBookingSlot(panel);
+        setBookingMessage(panel, 'Ese horario ya paso. Consulta disponibilidad nuevamente.', true);
         return;
       }
 

@@ -523,12 +523,17 @@ function isSellerOperational(seller) {
 
 function isSellerBlocked(sellerRecordId, date, startDateTime, endDateTime, blocks = []) {
   return blocks.some((block) => {
-    if (!block.activo || block.fecha !== date) {
+    const blockEndDate = block.fecha_fin || block.fecha;
+    if (!block.activo || !block.fecha || date < block.fecha || date > blockEndDate) {
       return false;
     }
 
     if (!Array.isArray(block.usuario) || !block.usuario.includes(sellerRecordId)) {
       return false;
+    }
+
+    if (block.fecha_fin) {
+      return true;
     }
 
     if (block.todo_el_dia || !block.hora_inicio || !block.hora_fin) {
@@ -543,10 +548,13 @@ function isSellerBlocked(sellerRecordId, date, startDateTime, endDateTime, block
 
 function getSellerBlockBusyTimes(sellerRecordId, date, blocks = []) {
   return blocks
-    .filter((block) => block.activo && block.fecha === date)
+    .filter((block) => {
+      const blockEndDate = block.fecha_fin || block.fecha;
+      return block.activo && block.fecha && date >= block.fecha && date <= blockEndDate;
+    })
     .filter((block) => Array.isArray(block.usuario) && block.usuario.includes(sellerRecordId))
     .map((block) => {
-      if (block.todo_el_dia || !block.hora_inicio || !block.hora_fin) {
+      if (block.fecha_fin || block.todo_el_dia || !block.hora_inicio || !block.hora_fin) {
         return {
           start: buildLocalDateTime(date, '00:00'),
           end: buildLocalDateTime(date, '23:59')

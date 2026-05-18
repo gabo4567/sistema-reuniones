@@ -9,24 +9,23 @@ const { listSellers } = require('../services/sellers.service');
 
 const router = express.Router();
 
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function isManagerRole(role) {
+  const roleValue = Array.isArray(role) ? role[0] : role;
+  return String(roleValue || '').trim().toLowerCase() === 'gerente';
+}
+
 function isValidDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
-}
-
-function isValidTime(value) {
-  return !value || /^\d{2}:\d{2}$/.test(String(value));
-}
-
-function toMinutes(time) {
-  const [hours, minutes] = String(time || '00:00').split(':').map(Number);
-  return (hours * 60) + minutes;
 }
 
 function validateCreateBlock(body = {}) {
   const usuarioRecordId = body.usuarioRecordId || body.Usuario;
   const fecha = body.fecha || body.Fecha;
-  const horaInicio = body.hora_inicio || body['Hora inicio'];
-  const horaFin = body.hora_fin || body['Hora fin'];
+  const fechaFin = body.fecha_fin || body['Fecha fin'] || body['Fecha final'] || fecha;
 
   if (!usuarioRecordId) {
     return 'usuarioRecordId is required';
@@ -40,38 +39,31 @@ function validateCreateBlock(body = {}) {
     return 'fecha must be provided in YYYY-MM-DD format';
   }
 
-  if (!isValidTime(horaInicio) || !isValidTime(horaFin)) {
-    return 'hora_inicio and hora_fin must be provided in HH:mm format';
+  if (!isValidDate(fechaFin)) {
+    return 'fecha_fin must be provided in YYYY-MM-DD format';
   }
 
-  const todoElDia = body.todo_el_dia ?? body['Todo el dia'] ?? true;
-  if (todoElDia === false && (!horaInicio || !horaFin)) {
-    return 'hora_inicio and hora_fin are required when todo_el_dia is false';
-  }
-
-  if (todoElDia === false && horaInicio && horaFin && toMinutes(horaInicio) >= toMinutes(horaFin)) {
-    return 'hora_fin must be later than hora_inicio';
+  if (fechaFin < fecha) {
+    return 'fecha_fin must be same day or later than fecha';
   }
 
   return '';
 }
 
 function validateUpdateBlock(body = {}) {
-  const todoElDia = body.todo_el_dia ?? body['Todo el dia'];
-  const horaInicio = body.hora_inicio || body['Hora inicio'];
-  const horaFin = body.hora_fin || body['Hora fin'];
   const fecha = body.fecha || body.Fecha;
+  const fechaFin = body.fecha_fin || body['Fecha fin'] || body['Fecha final'];
 
   if (fecha && !isValidDate(fecha)) {
     return 'fecha must be provided in YYYY-MM-DD format';
   }
 
-  if (!isValidTime(horaInicio) || !isValidTime(horaFin)) {
-    return 'hora_inicio and hora_fin must be provided in HH:mm format';
+  if (fechaFin && !isValidDate(fechaFin)) {
+    return 'fecha_fin must be provided in YYYY-MM-DD format';
   }
 
-  if (todoElDia === false && horaInicio && horaFin && toMinutes(horaInicio) >= toMinutes(horaFin)) {
-    return 'hora_fin must be later than hora_inicio';
+  if (fecha && fechaFin && fechaFin < fecha) {
+    return 'fecha_fin must be same day or later than fecha';
   }
 
   return '';
@@ -85,6 +77,9 @@ function hasEditableFields(body = {}) {
     'Usuario',
     'fecha',
     'Fecha',
+    'fecha_fin',
+    'Fecha fin',
+    'Fecha final',
     'todo_el_dia',
     'Todo el dia',
     'hora_inicio',
@@ -98,10 +93,23 @@ function hasEditableFields(body = {}) {
   ].some((field) => Object.prototype.hasOwnProperty.call(body, field));
 }
 
-router.get('/seller-blocks', async (_req, res) => {
+router.get('/seller-blocks', async (req, res) => {
   try {
-    const blocks = await listSellerBlocks();
-    return res.json(blocks);
+    const [blocks, sellers] = await Promise.all([
+      listSellerBlocks(),
+      listSellers()
+    ]);
+
+    if (isManagerRole(req.authUser?.rol)) {
+      return res.json(blocks);
+    }
+
+    const currentSeller = sellers.find((seller) => normalizeEmail(seller.correo) === normalizeEmail(req.authUser?.email));
+    if (!currentSeller?.recordId) {
+      return res.json([]);
+    }
+
+    return res.json(blocks.filter((block) => Array.isArray(block.usuario) && block.usuario.includes(currentSeller.recordId)));
   } catch (error) {
     return res.status(500).json({
       error: 'Failed to list seller blocks',

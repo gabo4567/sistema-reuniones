@@ -32,6 +32,7 @@ function mapRecordToSellerBlock(record) {
     id: fields.Id || '',
     usuario: fields.Usuario || [],
     fecha: fields.Fecha || '',
+    fecha_fin: fields['Fecha fin'] || fields['Fecha final'] || '',
     todo_el_dia: fields['Todo el dia'] === true,
     hora_inicio: fields['Hora inicio'] || '',
     hora_fin: fields['Hora fin'] || '',
@@ -54,6 +55,10 @@ function buildSellerBlockFields(data = {}, { partial = false } = {}) {
 
   if (!partial || hasAny(data, ['fecha', 'Fecha'])) {
     fields.Fecha = getFirstValue(data, ['fecha', 'Fecha']);
+  }
+
+  if (hasAny(data, ['fecha_fin', 'Fecha fin', 'Fecha final'])) {
+    fields['Fecha fin'] = getFirstValue(data, ['fecha_fin', 'Fecha fin', 'Fecha final', 'fecha', 'Fecha']);
   }
 
   if (!partial || hasAny(data, ['todo_el_dia', 'Todo el dia'])) {
