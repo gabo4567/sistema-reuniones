@@ -308,6 +308,45 @@ function normalizeSellerName(value) {
   return String(value || '').trim();
 }
 
+function isAirtableSelectOptionError(error) {
+  const details = error.response?.data || error;
+  const message = JSON.stringify(details);
+  return message.includes('INVALID_MULTIPLE_CHOICE_OPTIONS') ||
+    message.includes('Insufficient permissions to create new select option');
+}
+
+async function createMeetingWithSelectFallback(fields) {
+  try {
+    return await createMeeting(fields);
+  } catch (error) {
+    if (!isAirtableSelectOptionError(error)) {
+      throw error;
+    }
+
+    const fallbackFields = { ...fields };
+    delete fallbackFields.Vendedora;
+    delete fallbackFields['Asignado por'];
+    console.warn('Airtable rejected select option while creating meeting. Retrying without Vendedora/Asignado por.', error.response?.data || error.message);
+    return createMeeting(fallbackFields);
+  }
+}
+
+async function updateMeetingWithSelectFallback(recordId, fields) {
+  try {
+    return await updateMeeting(recordId, fields);
+  } catch (error) {
+    if (!isAirtableSelectOptionError(error)) {
+      throw error;
+    }
+
+    const fallbackFields = { ...fields };
+    delete fallbackFields.Vendedora;
+    delete fallbackFields['Asignado por'];
+    console.warn('Airtable rejected select option while updating meeting. Retrying without Vendedora/Asignado por.', error.response?.data || error.message);
+    return updateMeeting(recordId, fallbackFields);
+  }
+}
+
 function normalizeMeetingPhase(value) {
   const match = String(value || '').match(/\bfase\s*([12])\b/i);
   return match ? `FASE ${match[1]}` : '';
@@ -1019,7 +1058,7 @@ router.get('/meetings/:phone', async (req, res) => {
 
 router.patch('/meetings/:id', async (req, res) => {
   try {
-    const updatedMeeting = await updateMeeting(req.params.id, req.body);
+    const updatedMeeting = await updateMeetingWithSelectFallback(req.params.id, req.body);
     res.json(updatedMeeting);
   } catch (error) {
     res.status(500).json({
@@ -1154,7 +1193,7 @@ router.post('/book', async (req, res) => {
       ...(client?.id ? { Cliente: [client.id] } : {})
     };
 
-    const meeting = await createMeeting(meetingFields);
+    const meeting = await createMeetingWithSelectFallback(meetingFields);
 
     return res.status(201).json({
       meetLink,
@@ -1384,7 +1423,7 @@ router.post('/reschedule', async (req, res) => {
     const sellerName = normalizeSellerName(assignedEntry.seller.nombre) || await getSellerNameFromUser(assignedUser);
     const assignedBy = await getAssignedByName(req);
 
-    await updateMeeting(recordId, {
+    await updateMeetingWithSelectFallback(recordId, {
       Fecha: startDateTime,
       'Link de meet': meetLink,
       'Google Calendar Event ID': calendarEvent.id,

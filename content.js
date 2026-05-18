@@ -2481,8 +2481,15 @@
         setAvailabilityMessage(panel, 'Reunión agendada. Volvé a consultar disponibilidad para reservar otro horario.');
       } catch (error) {
         console.error('Extension FD: error al agendar reunion', error);
-        setBookingMessage(panel, 'No se pudo agendar la reunion.', true);
-        setBookingButtonState(panel, true);
+        const errorMessage = String(error?.message || '');
+        if (error?.status === 409 || errorMessage.includes('Selected seller is not available')) {
+          clearSelectedBookingSlot(panel);
+          setBookingMessage(panel, 'La vendedora seleccionada ya no esta disponible para ese horario. Consulta disponibilidad nuevamente.', true);
+          setBookingButtonState(panel, false);
+        } else {
+          setBookingMessage(panel, 'No se pudo agendar la reunion.', true);
+          setBookingButtonState(panel, true);
+        }
       } finally {
         panel.dataset.bookingInProgress = 'false';
         bookButton.textContent = 'Agendar reunion';
