@@ -2,6 +2,7 @@ const express = require('express');
 const {
   createSellerBlock,
   deactivateSellerBlock,
+  findDuplicateActiveSellerBlock,
   listSellerBlocks,
   updateSellerBlock
 } = require('../services/seller-blocks.service');
@@ -132,6 +133,15 @@ router.post('/seller-blocks', async (req, res) => {
       return res.status(404).json({
         error: 'Seller not found for block',
         message: 'No existe una vendedora con ese usuarioRecordId.'
+      });
+    }
+
+    const duplicateBlock = await findDuplicateActiveSellerBlock(req.body);
+    if (duplicateBlock) {
+      return res.status(409).json({
+        error: 'Duplicate active seller block',
+        message: 'Ya existe un bloqueo activo para esa misma fecha y horario.',
+        block: duplicateBlock
       });
     }
 

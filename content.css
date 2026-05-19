@@ -2087,6 +2087,39 @@
   color: var(--fd-text-primary);
 }
 
+.fd-seller-block-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fd-seller-block-row .fd-seller-work-hours {
+  flex: 1;
+}
+
+.fd-block-delete-btn {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-radius: var(--fd-radius-sm);
+  border: 1px solid var(--fd-error-border);
+  background: var(--fd-error-bg);
+  color: var(--fd-error);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.fd-block-delete-btn:hover:not(:disabled) {
+  border-color: var(--fd-error);
+}
+
+.fd-block-delete-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .fd-seller-actions {
   display: flex;
   gap: 5px;

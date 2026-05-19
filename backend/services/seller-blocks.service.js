@@ -41,6 +41,36 @@ function mapRecordToSellerBlock(record) {
   };
 }
 
+function normalizeBlockDate(value) {
+  return String(value || '').trim();
+}
+
+function normalizeBlockTime(value) {
+  return String(value || '').trim();
+}
+
+function getBlockEndDate(block = {}) {
+  return normalizeBlockDate(block.fecha_fin || block.fecha);
+}
+
+function sameUserBlock(block, usuarioRecordId) {
+  return Array.isArray(block.usuario) && block.usuario.includes(usuarioRecordId);
+}
+
+function sameBlockWindow(block, data = {}) {
+  const fecha = normalizeBlockDate(data.fecha || data.Fecha);
+  const fechaFin = normalizeBlockDate(data.fecha_fin || data['Fecha fin'] || data['Fecha final'] || fecha);
+  const todoElDia = getFirstValue(data, ['todo_el_dia', 'Todo el dia'], true) !== false;
+  const horaInicio = normalizeBlockTime(data.hora_inicio || data['Hora inicio']);
+  const horaFin = normalizeBlockTime(data.hora_fin || data['Hora fin']);
+
+  return normalizeBlockDate(block.fecha) === fecha &&
+    getBlockEndDate(block) === fechaFin &&
+    block.todo_el_dia === todoElDia &&
+    normalizeBlockTime(block.hora_inicio) === horaInicio &&
+    normalizeBlockTime(block.hora_fin) === horaFin;
+}
+
 function buildSellerBlockFields(data = {}, { partial = false } = {}) {
   const fields = {};
 
@@ -89,6 +119,18 @@ async function listSellerBlocks() {
   return (response.data.records || []).map(mapRecordToSellerBlock);
 }
 
+async function findDuplicateActiveSellerBlock(data = {}) {
+  const usuarioRecordId = data.usuarioRecordId || data.Usuario;
+  if (!usuarioRecordId) return null;
+
+  const blocks = await listSellerBlocks();
+  return blocks.find((block) =>
+    block.activo !== false &&
+    sameUserBlock(block, usuarioRecordId) &&
+    sameBlockWindow(block, data)
+  ) || null;
+}
+
 async function createSellerBlock(data) {
   const fields = buildSellerBlockFields(data);
   const response = await airtableClient.post(`/${SELLER_BLOCKS_TABLE_NAME}`, {
@@ -119,6 +161,7 @@ async function deactivateSellerBlock(recordId) {
 module.exports = {
   createSellerBlock,
   deactivateSellerBlock,
+  findDuplicateActiveSellerBlock,
   listSellerBlocks,
   updateSellerBlock
 };

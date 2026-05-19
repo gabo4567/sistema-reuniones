@@ -396,7 +396,7 @@ function isManagerRoleValue(role) {
 }
 
 function isSellerRoleValue(role) {
-  return normalizeLookupValue(role) === 'vendedora';
+  return ['vendedora', 'gerente'].includes(normalizeLookupValue(role));
 }
 
 function getEntryDisplayName(entry) {
@@ -1590,26 +1590,6 @@ router.post('/book', async (req, res) => {
     if (hasRequestedSeller) {
       const requestedEntry = findRequestedSellerEntry(eligibleSellers, { assignedSellerRecordId, assignedSellerName });
       if (!requestedEntry) {
-        const selectedSeller = (await listSellers()).find((seller) => {
-          const requestedRecordId = String(assignedSellerRecordId || '').trim();
-          const requestedName = normalizeLookupValue(assignedSellerName);
-          return (requestedRecordId && seller.recordId === requestedRecordId) ||
-            (requestedName && normalizeLookupValue(seller.nombre) === requestedName);
-        });
-        if (selectedSeller && isManagerRoleValue(selectedSeller.rol)) {
-          logWarn('meeting.book.rejected', req, {
-            reason: 'manager_cannot_be_assigned',
-            telefono,
-            date,
-            time,
-            assignedSellerRecordId: selectedSeller.recordId,
-            assignedSellerName: selectedSeller.nombre
-          });
-          return res.status(409).json({
-            error: 'Manager cannot be assigned meetings',
-            message: 'No se puede asignar una reunion a un gerente. Selecciona una vendedora.'
-          });
-        }
         logWarn('meeting.book.rejected', req, {
           reason: 'requested_seller_not_eligible',
           telefono,
@@ -2058,21 +2038,6 @@ router.post('/reschedule', async (req, res) => {
     if (oldVendedora) {
       const oldSellerEntry = findRequestedSellerEntry(eligibleSellers, { assignedSellerName: oldVendedora });
       if (!oldSellerEntry) {
-        const oldSeller = (await listSellers()).find((seller) => normalizeLookupValue(seller.nombre) === normalizeLookupValue(oldVendedora));
-        if (oldSeller && isManagerRoleValue(oldSeller.rol)) {
-          logWarn('meeting.reschedule.rejected', req, {
-            reason: 'manager_cannot_be_assigned',
-            recordId,
-            telefono,
-            date,
-            time,
-            oldVendedora
-          });
-          return res.status(409).json({
-            error: 'Manager cannot be assigned meetings',
-            message: 'No se puede asignar una reunion a un gerente. Selecciona una vendedora.'
-          });
-        }
         logWarn('meeting.reschedule.rejected', req, {
           reason: 'current_seller_not_eligible',
           recordId,

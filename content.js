@@ -880,6 +880,12 @@
     return blocks;
   }
 
+  async function deleteSellerBlock(recordId) {
+    return fetchJson(`${API_BASE_URL}/seller-blocks/${encodeURIComponent(recordId)}`, {
+      method: 'DELETE'
+    });
+  }
+
   function escapeHtml(value) {
     return String(value ?? '')
       .replace(/&/g, '&amp;')
@@ -1207,7 +1213,7 @@
             </div>
           </div>
           <div class="fd-badges">
-            <span class="fd-badge fd-user-color-badge" ${userColorStyle ? `style="${userColorStyle}"` : ''}>Gerente</span>
+          <span class="fd-badge fd-user-color-badge" ${userColorStyle ? `style="${userColorStyle}"` : ''}>gerente</span>
           </div>
           <button type="button" id="fd-login-google-btn">Cambiar cuenta Google</button>
         </div>
@@ -1224,8 +1230,8 @@
             </div>
           </div>
           <div class="fd-badges">
-            <span class="fd-badge fd-user-color-badge" ${userColorStyle ? `style="${userColorStyle}"` : ''}>Vendedora</span>
-            <span class="fd-badge ${recibe ? 'fd-badge--green' : 'fd-badge--gray'}">${recibe ? 'Recibe reuniones' : 'No recibe'}</span>
+            <span class="fd-badge fd-user-color-badge" ${userColorStyle ? `style="${userColorStyle}"` : ''}>vendedor</span>
+            <span class="fd-badge ${recibe ? 'fd-badge--green' : 'fd-badge--gray'}">${recibe ? 'recibe reuniones' : 'no recibe'}</span>
           </div>
           <button type="button" id="fd-login-google-btn">Cambiar cuenta Google</button>
         </div>
@@ -1328,7 +1334,7 @@
     const statusEl = panel?.querySelector('#fd-receive-status');
     const toggle = panel?.querySelector('#fd-receive-toggle');
     if (statusEl) {
-      statusEl.textContent = recibe ? 'Puede recibir reuniones' : 'No puede recibir reuniones';
+      statusEl.textContent = recibe ? 'puede recibir reuniones' : 'no puede recibir reuniones';
       statusEl.className = `fd-badge ${recibe ? 'fd-badge--green' : 'fd-badge--gray'}`;
     }
     if (toggle) {
@@ -1348,7 +1354,10 @@
   ];
 
   function getDefaultWorkHourRanges(day = 'monday') {
-    return [];
+    return [
+      { start: '08:00', end: '12:00' },
+      { start: '16:00', end: '20:00' }
+    ];
   }
 
   function getDefaultWorkHourRange(day = 'monday') {
@@ -1359,7 +1368,7 @@
     return Object.fromEntries(WORK_HOUR_DAYS.map(([day]) => [
       day,
       {
-        enabled: false,
+        enabled: true,
         ranges: getDefaultWorkHourRanges(day)
       }
     ]));
@@ -1463,7 +1472,7 @@
         <div class="fd-role-card-head">
           <strong>Mi disponibilidad</strong>
           <span>Configura si puedes recibir reuniones y bloquea dias o rangos horarios.</span>
-          <span id="fd-receive-status" class="fd-badge ${recibe ? 'fd-badge--green' : 'fd-badge--gray'}">${recibe ? 'Puede recibir reuniones' : 'No puede recibir reuniones'}</span>
+          <span id="fd-receive-status" class="fd-badge ${recibe ? 'fd-badge--green' : 'fd-badge--gray'}">${recibe ? 'puede recibir reuniones' : 'no puede recibir reuniones'}</span>
         </div>
         <button type="button" id="fd-receive-toggle" class="fd-secondary-action" data-receives="${recibe ? 'true' : 'false'}">${recibe ? 'Pausar recepcion' : 'Activar recepcion'}</button>
         <div class="fd-role-divider"></div>
@@ -1520,6 +1529,35 @@
           setWorkHoursMessage(panel, 'No se pudo cargar el horario personalizado.', true);
         });
     }
+
+    container.querySelector('#fd-own-blocks-list')?.addEventListener('click', async (event) => {
+      const deleteButton = event.target.closest('.fd-block-delete-btn');
+      if (!deleteButton || deleteButton.disabled) return;
+
+      const blockId = deleteButton.dataset.blockId || '';
+      if (!blockId) {
+        setRoleActionMessage(panel, 'No se encontro el bloqueo para quitar.', true);
+        return;
+      }
+
+      deleteButton.disabled = true;
+      deleteButton.textContent = 'Quitando...';
+      setRoleActionMessage(panel, 'Quitando bloqueo...');
+
+      try {
+        await deleteSellerBlock(blockId);
+        await loadOwnSellerBlocks(panel, usuario.recordId);
+        panel.dataset.selectedBookingTime = '';
+        setBookingButtonState(panel, false);
+        setRoleActionMessage(panel, 'Bloqueo quitado correctamente.');
+        setAvailabilityMessage(panel, 'Bloqueo quitado. Volve a consultar disponibilidad si necesitas revisar horarios.');
+      } catch (error) {
+        console.error('Extension FD: error al quitar bloqueo', error);
+        setRoleActionMessage(panel, 'No se pudo quitar el bloqueo.', true);
+        deleteButton.disabled = false;
+        deleteButton.textContent = 'Quitar';
+      }
+    });
 
     workHoursList?.addEventListener('click', (event) => {
       const removeButton = event.target.closest('.fd-work-hour-remove');
@@ -1650,7 +1688,11 @@
         setAvailabilityMessage(panel, 'Bloqueo creado. Volve a consultar disponibilidad si necesitas revisar horarios.');
       } catch (error) {
         console.error('Extension FD: error al crear bloqueo', error);
-        setRoleActionMessage(panel, 'No se pudo crear el bloqueo.', true);
+        setRoleActionMessage(
+          panel,
+          error?.status === 409 ? 'Ese bloqueo ya existe.' : 'No se pudo crear el bloqueo.',
+          true
+        );
       } finally {
         blockButton.disabled = false;
         blockButton.textContent = 'Crear bloqueo';
@@ -1733,7 +1775,7 @@
       .sort((a, b) => String(a.fecha || '').localeCompare(String(b.fecha || '')));
   }
 
-  function renderSellerBlocksList(blocks = [], emptyText = 'Sin bloqueos aplicados.') {
+  function renderSellerBlocksList(blocks = [], emptyText = 'Sin bloqueos aplicados.', { canDelete = false } = {}) {
     if (!blocks.length) {
       return `<div class="fd-empty-state">${escapeHtml(emptyText)}</div>`;
     }
@@ -1741,8 +1783,11 @@
     return `
       <div class="fd-seller-blocks-list">
         ${blocks.map((block) => `
-          <div class="fd-seller-work-hours">
-            <strong>${escapeHtml(formatSellerBlockRange(block))}</strong>${block.motivo ? ` - ${escapeHtml(block.motivo)}` : ''}
+          <div class="fd-seller-block-row">
+            <div class="fd-seller-work-hours">
+              <strong>${escapeHtml(formatSellerBlockRange(block))}</strong>${block.motivo ? ` - ${escapeHtml(block.motivo)}` : ''}
+            </div>
+            ${canDelete ? `<button type="button" class="fd-block-delete-btn" data-block-id="${escapeHtml(block.recordId || '')}">Quitar</button>` : ''}
           </div>
         `).join('')}
       </div>
@@ -1756,7 +1801,7 @@
     list.innerHTML = '<div class="fd-empty-state">Cargando bloqueos...</div>';
     try {
       const blocks = await fetchSellerBlocks();
-      list.innerHTML = renderSellerBlocksList(getBlocksForSeller(blocks, sellerRecordId));
+      list.innerHTML = renderSellerBlocksList(getBlocksForSeller(blocks, sellerRecordId), 'Sin bloqueos aplicados.', { canDelete: true });
     } catch (error) {
       console.error('Extension FD: error al cargar bloqueos propios', error);
       list.innerHTML = '<div class="fd-msg fd-msg--error">No se pudieron cargar los bloqueos.</div>';
@@ -1823,16 +1868,17 @@
         const workHoursSummary = formatWorkHoursSummary(workHoursBySeller?.[seller.recordId]);
         const sellerBlocksSummary = renderSellerBlocksList(
           getBlocksForSeller(sellerBlocks, seller.recordId),
-          'Sin bloqueos aplicados.'
+          'Sin bloqueos aplicados.',
+          { canDelete: true }
         );
         return `
           <div class="fd-seller-card" data-seller-id="${rid}" ${sellerColorStyle ? `style="${sellerColorStyle}"` : ''}>
             <div class="fd-seller-top">
               <span class="fd-seller-name fd-user-color-text">${escapeHtml(seller.nombre || seller.correo)}</span>
               <div class="fd-badges">
-                <span class="fd-badge ${activa ? 'fd-badge--green' : 'fd-badge--gray'}">${activa ? 'Activa' : 'Inactiva'}</span>
-                <span class="fd-badge ${recibe ? 'fd-badge--blue' : 'fd-badge--gray'}">${recibe ? 'Recibe reuniones' : 'Reuniones pausadas'}</span>
-                <span class="fd-badge ${authReady ? 'fd-badge--green' : 'fd-badge--amber'}">${escapeHtml(auth.label || 'Falta autorizar Google')}</span>
+                <span class="fd-badge ${activa ? 'fd-badge--green' : 'fd-badge--gray'}">${activa ? 'activo' : 'inactivo'}</span>
+                <span class="fd-badge ${recibe ? 'fd-badge--blue' : 'fd-badge--gray'}">${recibe ? 'recibe reuniones' : 'reuniones pausadas'}</span>
+                <span class="fd-badge ${authReady ? 'fd-badge--green' : 'fd-badge--amber'}">${escapeHtml(auth.label || 'falta autorizar Google')}</span>
               </div>
             </div>
             <div class="fd-seller-email">${escapeHtml(seller.correo || '')}${seller.telefono ? ` · ${escapeHtml(seller.telefono)}` : ''}</div>
@@ -1842,7 +1888,7 @@
             ${authReady ? '' : `<div class="fd-seller-auth-warning">${escapeHtml(getSellerAuthHelpText(auth.reason))}</div>`}
             <div class="fd-seller-actions">
               <button type="button" class="fd-seller-btn fd-seller-edit" data-id="${rid}">Editar</button>
-              <button type="button" class="fd-seller-btn fd-seller-toggle" data-id="${rid}" data-action="toggle-active">${activa ? 'Desactivar usuaria' : 'Activar usuaria'}</button>
+              <button type="button" class="fd-seller-btn fd-seller-toggle" data-id="${rid}" data-action="toggle-active">${activa ? 'Desactivar usuario' : 'Activar usuario'}</button>
               <button type="button" class="fd-seller-btn fd-seller-toggle" data-id="${rid}" data-action="toggle-receives">${recibe ? 'Pausar reuniones' : 'Recibir reuniones'}</button>
             </div>
             <form class="fd-seller-edit-form" data-id="${rid}" hidden>
@@ -1851,11 +1897,11 @@
               <input name="correo" type="email" placeholder="Correo" value="${escapeHtml(seller.correo || '')}" />
               <input name="telefono" type="text" placeholder="Telefono" value="${escapeHtml(seller.telefono || '')}" />
               <select name="rol">
-                <option value="Vendedora" ${seller.rol === 'Vendedora' ? 'selected' : ''}>Vendedora</option>
-                <option value="Gerente" ${seller.rol === 'Gerente' ? 'selected' : ''}>Gerente</option>
+                <option value="Vendedora" ${seller.rol === 'Vendedora' ? 'selected' : ''}>vendedor</option>
+                <option value="Gerente" ${seller.rol === 'Gerente' ? 'selected' : ''}>gerente</option>
               </select>
-              <label><input name="activa" type="checkbox" ${activa ? 'checked' : ''} /> Activa</label>
-              <label><input name="puede_recibir_reuniones" type="checkbox" ${recibe ? 'checked' : ''} /> Puede recibir reuniones</label>
+              <label><input name="activa" type="checkbox" ${activa ? 'checked' : ''} /> activo</label>
+              <label><input name="puede_recibir_reuniones" type="checkbox" ${recibe ? 'checked' : ''} /> puede recibir reuniones</label>
               <div class="fd-seller-edit-actions">
                 <button type="submit" class="fd-seller-btn">Guardar</button>
                 <button type="button" class="fd-seller-btn fd-seller-cancel">Cancelar</button>
@@ -1866,6 +1912,25 @@
           </div>
         `;
       }).join('');
+
+      listEl.querySelectorAll('.fd-block-delete-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const blockId = btn.dataset.blockId || '';
+          if (!blockId) return;
+
+          btn.disabled = true;
+          btn.textContent = 'Quitando...';
+
+          try {
+            await deleteSellerBlock(blockId);
+            await loadSellersIntoView(view);
+          } catch (err) {
+            console.error('Extension FD: error al quitar bloqueo de equipo', err);
+            btn.disabled = false;
+            btn.textContent = 'Quitar';
+          }
+        });
+      });
 
       listEl.querySelectorAll('.fd-seller-edit').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -1966,7 +2031,7 @@
               const confirmed = window.confirm(`¿Desactivar a ${sellerName}? No podrá recibir reuniones hasta que la vuelvas a activar.`);
               if (!confirmed) {
                 btn.disabled = false;
-                btn.textContent = 'Desactivar usuaria';
+                btn.textContent = 'Desactivar usuario';
                 return;
               }
             }
@@ -2031,7 +2096,7 @@
           <input id="fd-new-seller-nombre" type="text" placeholder="Nombre completo" />
           <input id="fd-new-seller-correo" type="email" placeholder="Correo electronico" />
           <input id="fd-new-seller-telefono" type="text" placeholder="Telefono (opcional)" />
-          <label><input id="fd-new-seller-recibe" type="checkbox" checked /> Puede recibir reuniones</label>
+          <label><input id="fd-new-seller-recibe" type="checkbox" checked /> puede recibir reuniones</label>
           <button type="button" id="fd-add-seller-btn" class="fd-add-seller-btn">Agregar vendedora</button>
           <div id="fd-add-seller-msg" class="fd-msg" style="display:none;"></div>
         </div>

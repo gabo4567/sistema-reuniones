@@ -38,13 +38,7 @@ function isManagerRole(role) {
 }
 
 function withRoleConsistency(data = {}, currentSeller = {}) {
-  const nextRole = data.rol || data.Rol || currentSeller.rol;
-  if (!isManagerRole(nextRole)) return data;
-
-  return {
-    ...data,
-    puede_recibir_reuniones: false
-  };
+  return data;
 }
 
 function buildSellerAuthStatus(seller, authUser) {
@@ -53,20 +47,20 @@ function buildSellerAuthStatus(seller, authUser) {
   const isActive = authUser?.activo === true;
   const isReady = Boolean(authUser && isActive && hasAccessToken && hasRefreshToken);
 
-  let label = 'Falta autorizar Google';
+  let label = 'falta autorizar Google';
   let reason = authUser ? 'missing_tokens' : 'missing_auth_user';
 
   if (isReady) {
-    label = 'Lista para Calendar';
+    label = 'listo';
     reason = 'ready';
   } else if (authUser && !isActive) {
     label = 'Google desactivado';
     reason = 'inactive_auth_user';
   } else if (authUser && hasAccessToken && !hasRefreshToken) {
-    label = 'Debe reconectar Google';
+    label = 'debe reconectar Google';
     reason = 'missing_refresh_token';
   } else if (!seller?.correo) {
-    label = 'Falta correo';
+    label = 'falta correo';
     reason = 'missing_seller_email';
   }
 

@@ -6,7 +6,10 @@ const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID;
 const WORK_HOURS_TABLE_NAME = process.env.WORK_HOURS_TABLE_NAME || 'HorariosVendedoras';
 const DAY_KEYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 const DAY_ORDER = Object.fromEntries(DAY_KEYS.map((day, index) => [day, index + 1]));
-const DEFAULT_WORK_HOUR_RANGES = [];
+const DEFAULT_WORK_HOUR_RANGES = [
+  { start: '08:00', end: '12:00' },
+  { start: '16:00', end: '20:00' }
+];
 
 if (!AIRTABLE_API_KEY || !AIRTABLE_BASE_ID) {
   throw new Error('Missing Airtable configuration. Check AIRTABLE_API_KEY and AIRTABLE_BASE_ID.');
@@ -85,13 +88,13 @@ function getDefaultWorkHourRanges() {
 
 function getDefaultWeeklySchedule() {
   return {
-    monday: { enabled: false, ranges: getDefaultWorkHourRanges() },
-    tuesday: { enabled: false, ranges: getDefaultWorkHourRanges() },
-    wednesday: { enabled: false, ranges: getDefaultWorkHourRanges() },
-    thursday: { enabled: false, ranges: getDefaultWorkHourRanges() },
-    friday: { enabled: false, ranges: getDefaultWorkHourRanges() },
-    saturday: { enabled: false, ranges: getDefaultWorkHourRanges() },
-    sunday: { enabled: false, ranges: getDefaultWorkHourRanges() }
+    monday: { enabled: true, ranges: getDefaultWorkHourRanges() },
+    tuesday: { enabled: true, ranges: getDefaultWorkHourRanges() },
+    wednesday: { enabled: true, ranges: getDefaultWorkHourRanges() },
+    thursday: { enabled: true, ranges: getDefaultWorkHourRanges() },
+    friday: { enabled: true, ranges: getDefaultWorkHourRanges() },
+    saturday: { enabled: true, ranges: getDefaultWorkHourRanges() },
+    sunday: { enabled: true, ranges: getDefaultWorkHourRanges() }
   };
 }
 
@@ -151,11 +154,12 @@ function mapRecordToWorkHourRow(record) {
 }
 
 function buildEmptyWorkHours(sellerRecordId) {
+  const weekly = getDefaultWeeklySchedule();
   return {
     sellerRecordId,
-    enabled: false,
+    enabled: true,
     ranges: [],
-    weekly: normalizeWeeklySchedule()
+    weekly
   };
 }
 
