@@ -2534,6 +2534,14 @@
           clearSelectedBookingSlot(panel);
           setBookingMessage(panel, 'Este cliente ya tiene una reunion activa o futura asignada.', true);
           setBookingButtonState(panel, false);
+        } else if (errorMessage.includes('Manager cannot be assigned meetings') || errorMessage.includes('No se puede asignar una reunion a un gerente')) {
+          clearSelectedBookingSlot(panel);
+          setBookingMessage(panel, 'No se puede asignar una reunion a un gerente. Selecciona una vendedora.', true);
+          setBookingButtonState(panel, false);
+        } else if (errorMessage.includes('Airtable no tiene creada la opcion') || errorMessage.includes('INVALID_MULTIPLE_CHOICE_OPTIONS')) {
+          clearSelectedBookingSlot(panel);
+          setBookingMessage(panel, 'Falta crear esa vendedora como opcion en el campo Vendedora de Airtable.', true);
+          setBookingButtonState(panel, false);
         } else if (error?.status === 409 || errorMessage.includes('Selected seller is not available')) {
           clearSelectedBookingSlot(panel);
           setBookingMessage(panel, 'La vendedora seleccionada ya no esta disponible para ese horario. Consulta disponibilidad nuevamente.', true);

@@ -33,6 +33,20 @@ function isValidRole(role) {
   return !normalizedRole || ['vendedora', 'gerente'].includes(normalizedRole);
 }
 
+function isManagerRole(role) {
+  return getRoleValue(role).toLowerCase() === 'gerente';
+}
+
+function withRoleConsistency(data = {}, currentSeller = {}) {
+  const nextRole = data.rol || data.Rol || currentSeller.rol;
+  if (!isManagerRole(nextRole)) return data;
+
+  return {
+    ...data,
+    puede_recibir_reuniones: false
+  };
+}
+
 function buildSellerAuthStatus(seller, authUser) {
   const hasAccessToken = Boolean(authUser?.access_token);
   const hasRefreshToken = Boolean(authUser?.refresh_token);
@@ -251,7 +265,7 @@ router.post('/sellers', async (req, res) => {
       });
     }
 
-    const seller = await createSeller(req.body);
+    const seller = await createSeller(withRoleConsistency(req.body));
     const workHours = await saveWorkHours(seller.recordId, {
       weekly: getDefaultWeeklySchedule()
     });
@@ -315,7 +329,7 @@ router.patch('/sellers/:id', async (req, res) => {
       }
     }
 
-    const seller = await updateSeller(req.params.id, req.body);
+    const seller = await updateSeller(req.params.id, withRoleConsistency(req.body, currentSeller));
     return res.json(seller);
   } catch (error) {
     return res.status(500).json({

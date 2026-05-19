@@ -358,6 +358,23 @@ function normalizeSellerName(value) {
   return String(value || '').trim();
 }
 
+function normalizeAirtableSelectValue(value) {
+  return normalizeSellerName(value).toLocaleUpperCase('es-AR');
+}
+
+function isAirtableSelectOptionError(error) {
+  const details = error?.response?.data || error;
+  const message = JSON.stringify(details);
+  return message.includes('INVALID_MULTIPLE_CHOICE_OPTIONS') ||
+    message.includes('Insufficient permissions to create new select option');
+}
+
+function markAirtableSelectOptionError(error, fieldName, fieldValue) {
+  error.status = 409;
+  error.publicMessage = `Airtable no tiene creada la opcion "${fieldValue}" en el campo ${fieldName}.`;
+  return error;
+}
+
 function normalizeMeetingPhase(value) {
   const match = String(value || '').match(/\bfase\s*([12])\b/i);
   return match ? `FASE ${match[1]}` : '';
@@ -373,6 +390,10 @@ function normalizeLookupValue(value) {
 
 function isManagerRoleValue(role) {
   return normalizeLookupValue(role) === 'gerente';
+}
+
+function isSellerRoleValue(role) {
+  return normalizeLookupValue(role) === 'vendedora';
 }
 
 function getEntryDisplayName(entry) {
@@ -404,18 +425,19 @@ function findRequestedSellerEntry(entries, { assignedSellerRecordId = '', assign
 }
 
 async function isRequestingUserManager(req) {
-  if (isManagerRoleValue(req.authUser?.rol)) return true;
-
   const email = req.authUser?.email || req.session.googleUserEmail || '';
-  if (!email) return false;
+  if (!email) return isManagerRoleValue(req.authUser?.rol);
 
   try {
     const businessUser = await getBusinessUserByEmail(email);
-    return isManagerRoleValue(businessUser?.fields?.Rol);
+    if (businessUser?.fields) {
+      return isManagerRoleValue(businessUser.fields.Rol);
+    }
   } catch (error) {
     console.error(`Error verificando rol gerente ${email}:`, error.response?.data || error.message);
-    return false;
   }
+
+  return isManagerRoleValue(req.authUser?.rol);
 }
 
 function findRequestingSellerEntry(entries = [], req) {
@@ -666,6 +688,10 @@ function isSellerOperational(seller) {
     seller?.puede_recibir_reuniones === true;
 }
 
+function isAssignableSeller(seller) {
+  return isSellerOperational(seller) && isSellerRoleValue(seller?.rol);
+}
+
 function isSellerBlocked(sellerRecordId, date, startDateTime, endDateTime, blocks = []) {
   return blocks.some((block) => {
     const blockEndDate = block.fecha_fin || block.fecha;
@@ -805,7 +831,7 @@ async function getOperationalSellerEntries(authUsers) {
       return seller ? { user, seller } : null;
     })
     .filter(Boolean)
-    .filter(({ seller }) => isSellerOperational(seller));
+    .filter(({ seller }) => isAssignableSeller(seller));
 }
 
 async function getEligibleSellerEntries(authUsers, { date, startDateTime, endDateTime }) {
@@ -1320,6 +1346,26 @@ router.post('/book', async (req, res) => {
     if (hasRequestedSeller) {
       const requestedEntry = findRequestedSellerEntry(eligibleSellers, { assignedSellerRecordId, assignedSellerName });
       if (!requestedEntry) {
+        const selectedSeller = (await listSellers()).find((seller) => {
+          const requestedRecordId = String(assignedSellerRecordId || '').trim();
+          const requestedName = normalizeLookupValue(assignedSellerName);
+          return (requestedRecordId && seller.recordId === requestedRecordId) ||
+            (requestedName && normalizeLookupValue(seller.nombre) === requestedName);
+        });
+        if (selectedSeller && isManagerRoleValue(selectedSeller.rol)) {
+          logWarn('meeting.book.rejected', req, {
+            reason: 'manager_cannot_be_assigned',
+            telefono,
+            date,
+            time,
+            assignedSellerRecordId: selectedSeller.recordId,
+            assignedSellerName: selectedSeller.nombre
+          });
+          return res.status(409).json({
+            error: 'Manager cannot be assigned meetings',
+            message: 'No se puede asignar una reunion a un gerente. Selecciona una vendedora.'
+          });
+        }
         logWarn('meeting.book.rejected', req, {
           reason: 'requested_seller_not_eligible',
           telefono,
@@ -1398,7 +1444,8 @@ router.post('/book', async (req, res) => {
     )?.uri || '';
 
     const sellerName = normalizeSellerName(assignedEntry.seller.nombre) || await getSellerNameFromUser(assignedUser);
-    const assignedBy = await getAssignedByName(req);
+    const sellerSelectName = normalizeAirtableSelectValue(sellerName);
+    const assignedBy = normalizeAirtableSelectValue(await getAssignedByName(req));
     let meeting;
     try {
       const client = await findOrCreateClient({ telefono, nombre, email });
@@ -1415,13 +1462,16 @@ router.post('/book', async (req, res) => {
         'Google Calendar Event ID': calendarEvent.id,
         ...(assignedBy ? { 'Asignado por': assignedBy } : {}),
         Origen: 'API',
-        ...(sellerName ? { Vendedora: sellerName } : {}),
+        ...(sellerSelectName ? { Vendedora: sellerSelectName } : {}),
         ...(client?.id ? { Cliente: [client.id] } : {})
       };
 
       meeting = await createMeeting(meetingFields);
     } catch (error) {
       await deleteCalendarEventSafely(assignedUser, calendarEvent.id);
+      if (isAirtableSelectOptionError(error)) {
+        throw markAirtableSelectOptionError(error, 'Vendedora/Asignado por', sellerSelectName || assignedBy);
+      }
       throw error;
     }
 
@@ -1430,7 +1480,7 @@ router.post('/book', async (req, res) => {
       date,
       time,
       duration: parsedDuration,
-      sellerName,
+      sellerName: sellerSelectName || sellerName,
       assignedUser: assignedUser.email,
       calendarEventId: calendarEvent.id,
       meetingRecordId: meeting?.id || null
@@ -1438,7 +1488,7 @@ router.post('/book', async (req, res) => {
 
     return res.status(201).json({
       meetLink,
-      vendedora: sellerName || assignedUser.email,
+      vendedora: sellerSelectName || sellerName || assignedUser.email,
       assignedUser: assignedUser.email,
       calendarEventId: calendarEvent.id,
       meetingRecordId: meeting?.id || null
@@ -1450,8 +1500,10 @@ router.post('/book', async (req, res) => {
       time,
       duration: parsedDuration
     });
-    return res.status(500).json({
+    const status = error.status || 500;
+    return res.status(status).json({
       error: 'Failed to book meeting',
+      message: error.publicMessage || undefined,
       details: error.response?.data || error.message
     });
   }
@@ -1733,6 +1785,21 @@ router.post('/reschedule', async (req, res) => {
     if (oldVendedora) {
       const oldSellerEntry = findRequestedSellerEntry(eligibleSellers, { assignedSellerName: oldVendedora });
       if (!oldSellerEntry) {
+        const oldSeller = (await listSellers()).find((seller) => normalizeLookupValue(seller.nombre) === normalizeLookupValue(oldVendedora));
+        if (oldSeller && isManagerRoleValue(oldSeller.rol)) {
+          logWarn('meeting.reschedule.rejected', req, {
+            reason: 'manager_cannot_be_assigned',
+            recordId,
+            telefono,
+            date,
+            time,
+            oldVendedora
+          });
+          return res.status(409).json({
+            error: 'Manager cannot be assigned meetings',
+            message: 'No se puede asignar una reunion a un gerente. Selecciona una vendedora.'
+          });
+        }
         logWarn('meeting.reschedule.rejected', req, {
           reason: 'current_seller_not_eligible',
           recordId,
@@ -1805,7 +1872,8 @@ router.post('/reschedule', async (req, res) => {
       calendarEvent.conferenceData?.entryPoints?.find((ep) => ep.entryPointType === 'video')?.uri || '';
 
     const sellerName = normalizeSellerName(assignedEntry.seller.nombre) || await getSellerNameFromUser(assignedUser);
-    const assignedBy = await getAssignedByName(req);
+    const sellerSelectName = normalizeAirtableSelectValue(sellerName);
+    const assignedBy = normalizeAirtableSelectValue(await getAssignedByName(req));
 
     try {
       await updateMeeting(recordId, {
@@ -1814,10 +1882,13 @@ router.post('/reschedule', async (req, res) => {
         'Google Calendar Event ID': calendarEvent.id,
         ESTADO: 'Pendiente',
         ...(assignedBy ? { 'Asignado por': assignedBy } : {}),
-        ...(sellerName ? { Vendedora: sellerName } : {})
+        ...(sellerSelectName ? { Vendedora: sellerSelectName } : {})
       });
     } catch (error) {
       await deleteCalendarEventSafely(assignedUser, calendarEvent.id);
+      if (isAirtableSelectOptionError(error)) {
+        throw markAirtableSelectOptionError(error, 'Vendedora/Asignado por', sellerSelectName || assignedBy);
+      }
       throw error;
     }
 
@@ -1871,7 +1942,7 @@ router.post('/reschedule', async (req, res) => {
       date,
       time,
       duration: parsedDuration,
-      sellerName,
+      sellerName: sellerSelectName || sellerName,
       assignedUser: assignedUser.email,
       calendarEventId: calendarEvent.id,
       oldCalendarEventId: oldCalendarEventId || ''
@@ -1879,7 +1950,7 @@ router.post('/reschedule', async (req, res) => {
 
     return res.json({
       meetLink,
-      vendedora: sellerName || assignedUser.email,
+      vendedora: sellerSelectName || sellerName || assignedUser.email,
       calendarEventId: calendarEvent.id
     });
   } catch (error) {
@@ -1890,8 +1961,10 @@ router.post('/reschedule', async (req, res) => {
       time,
       duration: parsedDuration
     });
-    return res.status(500).json({
+    const status = error.status || 500;
+    return res.status(status).json({
       error: 'Failed to reschedule meeting',
+      message: error.publicMessage || undefined,
       details: error.response?.data || error.message
     });
   }
