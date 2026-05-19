@@ -1544,6 +1544,7 @@ router.get('/availability', async (req, res) => {
         const busyTimes = await getBusyTimes(user, timeMin, timeMax);
         const blockBusyTimes = getSellerBlockBusyTimes(seller.recordId, date, sellerBlocks);
         const workHourBusyTimes = getCustomWorkHourBusyTimes(seller.recordId, date, workHoursBySeller);
+        const workHourRanges = getWorkHourRangesForDate(seller.recordId, date, workHoursBySeller);
         const airtableBusyTimes = airtableBusyBySeller[seller.recordId] || [];
         busyByUser[seller.nombre || user.email] = [...busyTimes, ...blockBusyTimes, ...workHourBusyTimes, ...airtableBusyTimes];
         logInfo('availability.seller_check.success', req, {
@@ -1554,6 +1555,8 @@ router.get('/availability', async (req, res) => {
           calendarBusyCount: busyTimes.length,
           blockBusyCount: blockBusyTimes.length,
           workHourBusyCount: workHourBusyTimes.length,
+          workHourEnabled: workHoursBySeller[seller.recordId]?.enabled === true,
+          workHourRanges,
           airtableBusyCount: airtableBusyTimes.length
         });
       } catch (userError) {

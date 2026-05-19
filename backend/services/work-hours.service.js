@@ -6,10 +6,7 @@ const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID;
 const WORK_HOURS_TABLE_NAME = process.env.WORK_HOURS_TABLE_NAME || 'HorariosVendedoras';
 const DAY_KEYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 const DAY_ORDER = Object.fromEntries(DAY_KEYS.map((day, index) => [day, index + 1]));
-const DEFAULT_WORK_HOUR_RANGES = [
-  { start: '08:00', end: '12:00' },
-  { start: '16:00', end: '20:00' }
-];
+const DEFAULT_WORK_HOUR_RANGES = [];
 
 if (!AIRTABLE_API_KEY || !AIRTABLE_BASE_ID) {
   throw new Error('Missing Airtable configuration. Check AIRTABLE_API_KEY and AIRTABLE_BASE_ID.');
@@ -88,11 +85,11 @@ function getDefaultWorkHourRanges() {
 
 function getDefaultWeeklySchedule() {
   return {
-    monday: { enabled: true, ranges: getDefaultWorkHourRanges() },
-    tuesday: { enabled: true, ranges: getDefaultWorkHourRanges() },
-    wednesday: { enabled: true, ranges: getDefaultWorkHourRanges() },
-    thursday: { enabled: true, ranges: getDefaultWorkHourRanges() },
-    friday: { enabled: true, ranges: getDefaultWorkHourRanges() },
+    monday: { enabled: false, ranges: getDefaultWorkHourRanges() },
+    tuesday: { enabled: false, ranges: getDefaultWorkHourRanges() },
+    wednesday: { enabled: false, ranges: getDefaultWorkHourRanges() },
+    thursday: { enabled: false, ranges: getDefaultWorkHourRanges() },
+    friday: { enabled: false, ranges: getDefaultWorkHourRanges() },
     saturday: { enabled: false, ranges: getDefaultWorkHourRanges() },
     sunday: { enabled: false, ranges: getDefaultWorkHourRanges() }
   };
@@ -113,7 +110,7 @@ function normalizeWeeklySchedule(weekly = {}, fallbackRanges = []) {
     const source = hasWeekly
       ? (normalizedWeekly[day] || {})
       : {
-          enabled: legacyRanges.length > 0 ? ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].includes(day) : defaults[day].enabled,
+          enabled: legacyRanges.length > 0 ? ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].includes(day) : false,
           ranges: legacyRanges.length ? legacyRanges : defaults[day].ranges
         };
     const ranges = normalizeRanges(source.ranges || defaults[day].ranges);
@@ -156,7 +153,7 @@ function mapRecordToWorkHourRow(record) {
 function buildEmptyWorkHours(sellerRecordId) {
   return {
     sellerRecordId,
-    enabled: true,
+    enabled: false,
     ranges: [],
     weekly: normalizeWeeklySchedule()
   };
@@ -180,7 +177,7 @@ function buildWorkHoursFromRows(sellerRecordId, rows = []) {
       day,
       {
         enabled: dayRows.some((row) => row.enabled) && normalizeRanges(activeRanges).length > 0,
-        ranges: normalizeRanges(activeRanges.length ? activeRanges : defaults[day].ranges)
+        ranges: normalizeRanges(activeRanges)
       }
     ];
   }));
@@ -197,14 +194,13 @@ function buildRowsFromWorkHours(sellerRecordId, { weekly }) {
   return DAY_KEYS.flatMap((day) => {
     const dayConfig = weekly[day] || { enabled: false, ranges: [] };
     if (!dayConfig.enabled) {
-      const defaultRange = getDefaultWeeklySchedule()[day].ranges[0] || { start: '08:00', end: '12:00' };
       return [{
         fields: {
           Usuario: [sellerRecordId],
           Dia: day,
           Activo: false,
-          'Hora inicio': defaultRange.start,
-          'Hora fin': defaultRange.end,
+          'Hora inicio': '00:00',
+          'Hora fin': '00:00',
           Orden: DAY_ORDER[day] * 10
         }
       }];
@@ -271,11 +267,6 @@ async function createRows(rows = []) {
 
 async function getWorkHours(sellerRecordId) {
   const rows = await listRowsForSeller(sellerRecordId);
-  if (!rows.length) {
-    await createRows(buildRowsFromWorkHours(sellerRecordId, { weekly: normalizeWeeklySchedule() }));
-    return getWorkHours(sellerRecordId);
-  }
-
   return buildWorkHoursFromRows(sellerRecordId, rows);
 }
 
@@ -289,14 +280,6 @@ async function listWorkHours() {
     });
     return acc;
   }, {});
-
-  const sellersWithoutRows = sellers.filter((seller) => seller.recordId && !rowsBySeller[seller.recordId]);
-  for (const seller of sellersWithoutRows) {
-    const weekly = normalizeWeeklySchedule();
-    await createRows(buildRowsFromWorkHours(seller.recordId, { weekly }));
-    rowsBySeller[seller.recordId] = buildRowsFromWorkHours(seller.recordId, { weekly })
-      .map((record) => mapRecordToWorkHourRow({ id: '', fields: record.fields }));
-  }
 
   return Object.fromEntries(
     sellers

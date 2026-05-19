@@ -1273,21 +1273,18 @@
   ];
 
   function getDefaultWorkHourRanges(day = 'monday') {
-    return [
-      { start: '08:00', end: '12:00' },
-      { start: '16:00', end: '20:00' }
-    ];
+    return [];
   }
 
   function getDefaultWorkHourRange(day = 'monday') {
-    return getDefaultWorkHourRanges(day)[0] || { start: '08:00', end: '12:00' };
+    return getDefaultWorkHourRanges(day)[0] || { start: '09:00', end: '10:00' };
   }
 
   function getDefaultWeeklyWorkHours() {
     return Object.fromEntries(WORK_HOUR_DAYS.map(([day]) => [
       day,
       {
-        enabled: !['saturday', 'sunday'].includes(day),
+        enabled: false,
         ranges: getDefaultWorkHourRanges(day)
       }
     ]));
@@ -1301,7 +1298,11 @@
     if (!dayList) return;
 
     const fallbackRange = getDefaultWorkHourRange(day);
-    const normalizedRanges = ranges.length ? ranges : [fallbackRange];
+    const normalizedRanges = ranges.length ? ranges : [];
+    if (!normalizedRanges.length) {
+      dayList.innerHTML = '';
+      return;
+    }
     dayList.innerHTML = normalizedRanges.map((range, index) => `
       <div class="fd-work-hour-row" data-day="${escapeHtml(day)}">
         <input type="time" class="fd-work-hour-start" value="${escapeHtml(range.start || fallbackRange.start)}" aria-label="Inicio rango ${index + 1}" />
@@ -1457,6 +1458,9 @@
           return;
         }
         renderWorkHourRows(container, day, [...ranges, getDefaultWorkHourRange(day)]);
+        const dayEl = container?.querySelector(`[data-work-day="${day}"]`);
+        const enabledInput = dayEl?.querySelector('.fd-work-day-enabled');
+        if (enabledInput) enabledInput.checked = true;
         setWorkHoursMessage(panel, '');
         return;
       }
