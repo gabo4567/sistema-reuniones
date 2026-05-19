@@ -4,6 +4,7 @@ const {
   getBusinessUserByEmail,
   getContactByPhone,
   getMeetingsByPhone,
+  getMeetingById,
   getMeetingByMeetLink,
   listMeetingsByDateRange,
   createMeeting,
@@ -19,6 +20,8 @@ const {
   buildLocalDateTime,
   createMeetEvent,
   deleteCalendarEvent,
+  getCalendarEvent,
+  updateCalendarEvent,
   getBusyTimes,
   getAvailableSlots
 } = require('../services/calendar.service');
@@ -557,9 +560,197 @@ async function deleteCalendarEventSafely(user, calendarEventId) {
     await deleteCalendarEvent(user, calendarEventId);
     return true;
   } catch (error) {
-    console.warn('No se pudo eliminar evento de Calendar durante rollback:', error.response?.data || error.message);
+    if ([404, 410].includes(error?.response?.status) || [404, 410].includes(error?.code)) {
+      return true;
+    }
+    console.warn('No se pudo eliminar evento de Calendar:', error.response?.data || error.message);
     return false;
   }
+}
+
+function findSellerForMeeting(sellers = [], recordOrName = '') {
+  const fields = recordOrName?.fields || {};
+  const sellerName = normalizeLookupValue(fields.Vendedora || recordOrName);
+  if (!sellerName) return null;
+
+  return sellers.find((seller) => {
+    const values = [
+      seller.recordId,
+      seller.id,
+      seller.nombre,
+      seller.correo
+    ].map(normalizeLookupValue).filter(Boolean);
+
+    return values.some((value) => value === sellerName || value.includes(sellerName) || sellerName.includes(value));
+  }) || null;
+}
+
+function findAuthUserForSeller(authUsers = [], seller = null) {
+  if (!seller?.correo) return null;
+  const sellerEmail = normalizeEmail(seller.correo);
+  return authUsers.find((user) => normalizeEmail(user.email) === sellerEmail) || null;
+}
+
+async function findCalendarUserForMeeting(record, authUsers = null, sellers = null) {
+  const loadedAuthUsers = authUsers || await getActiveUsers();
+  const loadedSellers = sellers || await listSellers();
+  return findAuthUserForSeller(loadedAuthUsers, findSellerForMeeting(loadedSellers, record));
+}
+
+function getCalendarEventStartIso(event) {
+  return event?.start?.dateTime || (event?.start?.date ? `${event.start.date}T00:00:00${String(buildLocalDateTime(event.start.date, '00:00')).slice(19)}` : '');
+}
+
+function getCalendarEventDurationMinutes(event) {
+  const start = new Date(event?.start?.dateTime || event?.start?.date || '');
+  const end = new Date(event?.end?.dateTime || event?.end?.date || '');
+  const diff = end.getTime() - start.getTime();
+  return Number.isFinite(diff) && diff > 0 ? Math.round(diff / 60000) : null;
+}
+
+function addMinutesToIso(isoDateTime, minutes) {
+  const start = new Date(isoDateTime);
+  if (Number.isNaN(start.getTime())) return '';
+  return new Date(start.getTime() + (Number(minutes) * 60000)).toISOString();
+}
+
+function isSameMinute(a, b) {
+  const first = new Date(a).getTime();
+  const second = new Date(b).getTime();
+  if (!Number.isFinite(first) || !Number.isFinite(second)) return false;
+  return Math.abs(first - second) < 60000;
+}
+
+function buildCalendarSyncPatch(record, event) {
+  const fields = record?.fields || {};
+  const patch = {};
+  const eventStart = getCalendarEventStartIso(event);
+  const eventDuration = getCalendarEventDurationMinutes(event);
+  const eventMeetLink = event?.hangoutLink ||
+    event?.conferenceData?.entryPoints?.find((entry) => entry.entryPointType === 'video')?.uri ||
+    '';
+
+  if (eventStart && fields.Fecha && !isSameMinute(eventStart, fields.Fecha)) {
+    patch.Fecha = new Date(eventStart).toISOString();
+  }
+
+  if (eventDuration && Number(fields.Duracion || fields['Duracion']) !== eventDuration) {
+    patch.Duracion = eventDuration;
+  }
+
+  if (eventMeetLink && fields['Link de meet'] !== eventMeetLink) {
+    patch['Link de meet'] = eventMeetLink;
+  }
+
+  return patch;
+}
+
+async function syncMeetingFromCalendar(record, authUsers = null, sellers = null) {
+  const fields = record?.fields || {};
+  const calendarEventId = fields['Google Calendar Event ID'];
+  if (!record?.id || !calendarEventId || isCancelledMeetingStatus(fields.ESTADO)) {
+    return record;
+  }
+
+  const user = await findCalendarUserForMeeting(record, authUsers, sellers);
+  if (!user) return record;
+
+  const event = await getCalendarEvent(user, calendarEventId);
+  if (!event || event.status === 'cancelled') {
+    return updateMeeting(record.id, {
+      ESTADO: 'Cancelada',
+      Notas: fields.Notas
+        ? `${fields.Notas}\nCancelada automaticamente: el evento ya no existe en Google Calendar.`
+        : 'Cancelada automaticamente: el evento ya no existe en Google Calendar.'
+    });
+  }
+
+  const patch = buildCalendarSyncPatch(record, event);
+  if (Object.keys(patch).length) {
+    return updateMeeting(record.id, patch);
+  }
+
+  return record;
+}
+
+async function cancelMeetingAcrossSystems(record, req = null) {
+  if (!record?.id) return null;
+  const fields = record.fields || {};
+  const calendarEventId = fields['Google Calendar Event ID'] || '';
+  let calendarDeleted = false;
+
+  if (calendarEventId) {
+    const user = await findCalendarUserForMeeting(record);
+    calendarDeleted = await deleteCalendarEventSafely(user, calendarEventId);
+    if (!user) {
+      console.warn('No se encontro usuario de Calendar para cancelar reunion:', {
+        meetingRecordId: record.id,
+        vendedora: fields.Vendedora
+      });
+    }
+  }
+
+  const updatedMeeting = await updateMeeting(record.id, {
+    ESTADO: 'Cancelada'
+  });
+
+  if (req) {
+    logInfo('meeting.cancel.success', req, {
+      meetingRecordId: record.id,
+      calendarEventId,
+      calendarDeleted
+    });
+  }
+
+  return {
+    meeting: updatedMeeting,
+    calendarDeleted
+  };
+}
+
+async function syncCalendarTimeFromMeeting(record) {
+  const fields = record?.fields || {};
+  const calendarEventId = fields['Google Calendar Event ID'];
+  const startDateTime = fields.Fecha;
+  if (!calendarEventId || !startDateTime || isCancelledMeetingStatus(fields.ESTADO)) {
+    return null;
+  }
+
+  const duration = getMeetingDurationMinutes(fields);
+  const endDateTime = addMinutesToIso(startDateTime, duration);
+  if (!endDateTime) return null;
+
+  const user = await findCalendarUserForMeeting(record);
+  if (!user) return null;
+
+  return updateCalendarEvent(user, calendarEventId, {
+    start: {
+      dateTime: startDateTime,
+      timeZone: TIMEZONE
+    },
+    end: {
+      dateTime: endDateTime,
+      timeZone: TIMEZONE
+    }
+  });
+}
+
+async function syncCalendarChangesForDateRange(startIso, endIso, authUsers = null, sellers = null) {
+  const meetings = await listMeetingsByDateRange(startIso, endIso);
+  const loadedAuthUsers = authUsers || await getActiveUsers();
+  const loadedSellers = sellers || await listSellers();
+
+  await Promise.all(meetings.map(async (meeting) => {
+    try {
+      await syncMeetingFromCalendar(meeting, loadedAuthUsers, loadedSellers);
+    } catch (error) {
+      console.warn('No se pudo sincronizar reunion desde Calendar:', {
+        meetingRecordId: meeting?.id,
+        calendarEventId: meeting?.fields?.['Google Calendar Event ID'],
+        error: error.response?.data || error.message
+      });
+    }
+  }));
 }
 
 function isActiveFutureMeeting(record, { excludeRecordId = '' } = {}) {
@@ -1180,21 +1371,34 @@ router.get('/meetings/by-link', async (req, res) => {
 router.get('/meetings/:phone', async (req, res) => {
   try {
     const meetings = await getMeetingsByPhone(req.params.phone);
+    const [authUsers, sellers] = await Promise.all([getActiveUsers(), listSellers()]);
+    const syncedMeetings = await Promise.all(meetings.map(async (meeting) => {
+      try {
+        return await syncMeetingFromCalendar(meeting, authUsers, sellers);
+      } catch (error) {
+        logWarn('meeting.fetch_by_phone.sync_skipped', req, {
+          meetingRecordId: meeting?.id,
+          calendarEventId: meeting?.fields?.['Google Calendar Event ID'],
+          reason: error.response?.data || error.message
+        });
+        return meeting;
+      }
+    }));
     logInfo('meeting.fetch_by_phone.success', req, {
       telefono: req.params.phone,
-      meetingsCount: meetings.length,
-      meetingRecordIds: meetings.map((meeting) => meeting.id).filter(Boolean)
+      meetingsCount: syncedMeetings.length,
+      meetingRecordIds: syncedMeetings.map((meeting) => meeting.id).filter(Boolean)
     });
     if (wantsHtml(req)) {
       return res.send(renderDataPage({
         title: 'Reuniones del contacto',
         subtitle: `Listado de reuniones para el telefono ${req.params.phone}.`,
         badge: 'Reuniones',
-        records: meetings,
+        records: syncedMeetings,
         emptyMessage: 'No se encontraron reuniones para ese telefono.'
       }));
     }
-    res.json(meetings);
+    res.json(syncedMeetings);
   } catch (error) {
     logError('meeting.fetch_by_phone.error', req, error, { telefono: req.params.phone });
     if (wantsHtml(req)) {
@@ -1214,11 +1418,37 @@ router.get('/meetings/:phone', async (req, res) => {
 
 router.patch('/meetings/:id', async (req, res) => {
   try {
+    const currentMeeting = await getMeetingById(req.params.id);
+    if (!currentMeeting) {
+      return res.status(404).json({ error: 'Meeting not found' });
+    }
+
     logInfo('meeting.update.start', req, {
       meetingRecordId: req.params.id,
       fields: Object.keys(req.body || {})
     });
+
+    if (isCancelledMeetingStatus(req.body?.ESTADO)) {
+      const result = await cancelMeetingAcrossSystems(currentMeeting, req);
+      return res.json(result.meeting);
+    }
+
     const updatedMeeting = await updateMeeting(req.params.id, req.body);
+    if (
+      Object.prototype.hasOwnProperty.call(req.body || {}, 'Fecha') ||
+      Object.prototype.hasOwnProperty.call(req.body || {}, 'Duracion') ||
+      Object.prototype.hasOwnProperty.call(req.body || {}, 'Duración') ||
+      Object.prototype.hasOwnProperty.call(req.body || {}, 'Duracion minutos')
+    ) {
+      try {
+        await syncCalendarTimeFromMeeting(updatedMeeting);
+      } catch (calendarError) {
+        logError('meeting.update.calendar_sync_error', req, calendarError, {
+          meetingRecordId: req.params.id,
+          calendarEventId: updatedMeeting?.fields?.['Google Calendar Event ID']
+        });
+      }
+    }
     logInfo('meeting.update.success', req, {
       meetingRecordId: req.params.id,
       updatedFields: Object.keys(req.body || {})
@@ -1309,7 +1539,22 @@ router.post('/book', async (req, res) => {
       assignedSellerName: assignedSellerName || ''
     });
 
-    const existingMeeting = await findActiveFutureMeetingForPhone(telefono);
+    const activeUsers = await getActiveUsers();
+    const sellers = await listSellers();
+    const phoneMeetings = await getMeetingsByPhone(telefono);
+    await Promise.all(phoneMeetings.map(async (meeting) => {
+      try {
+        await syncMeetingFromCalendar(meeting, activeUsers, sellers);
+      } catch (syncError) {
+        logWarn('meeting.book.calendar_sync_skipped', req, {
+          meetingRecordId: meeting?.id,
+          calendarEventId: meeting?.fields?.['Google Calendar Event ID'],
+          reason: syncError.response?.data || syncError.message
+        });
+      }
+    }));
+    const existingMeeting = (await getMeetingsByPhone(telefono))
+      .find((record) => isActiveFutureMeeting(record)) || null;
     if (existingMeeting) {
       logWarn('meeting.book.rejected', req, {
         reason: 'client_active_future_meeting',
@@ -1325,7 +1570,6 @@ router.post('/book', async (req, res) => {
       });
     }
 
-    const activeUsers = await getActiveUsers();
     const eligibleSellers = await getEligibleSellerEntries(activeUsers, { date, startDateTime, endDateTime });
     if (!eligibleSellers.length) {
       logWarn('meeting.book.rejected', req, {
@@ -1509,6 +1753,34 @@ router.post('/book', async (req, res) => {
   }
 });
 
+router.delete('/meetings/:id', async (req, res) => {
+  try {
+    const meeting = await getMeetingById(req.params.id);
+    if (!meeting) {
+      return res.status(404).json({ error: 'Meeting not found' });
+    }
+
+    logInfo('meeting.cancel.start', req, {
+      meetingRecordId: req.params.id,
+      calendarEventId: meeting?.fields?.['Google Calendar Event ID']
+    });
+
+    const result = await cancelMeetingAcrossSystems(meeting, req);
+    res.json({
+      status: 'meeting_cancelled',
+      ...result
+    });
+  } catch (error) {
+    logError('meeting.cancel.error', req, error, {
+      meetingRecordId: req.params.id
+    });
+    res.status(500).json({
+      error: 'Failed to cancel meeting',
+      details: error.response?.data || error.message
+    });
+  }
+});
+
 router.get('/availability', async (req, res) => {
   const { date, duration } = req.query;
   const parsedDuration = Number(duration);
@@ -1563,6 +1835,7 @@ router.get('/availability', async (req, res) => {
     const operationalSellerEntries = await getOperationalSellerEntries(loggedUsers);
     const sellerBlocks = await listSellerBlocks();
     const workHoursBySeller = await listWorkHours();
+    await syncCalendarChangesForDateRange(timeMin, timeMax, loggedUsers, operationalSellerEntries.map((entry) => entry.seller));
     const airtableBusyBySeller = await getAirtableBusyBySeller(operationalSellerEntries, date);
     const busyByUser = {};
 

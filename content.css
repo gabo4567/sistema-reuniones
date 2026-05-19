@@ -1801,6 +1801,38 @@
   color: var(--fd-text-primary);
 }
 
+.meeting-cancel-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px 11px;
+  border-radius: var(--fd-radius-sm);
+  border: 1px solid var(--fd-error-border);
+  background: var(--fd-error-bg);
+  color: var(--fd-error);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--fd-transition), border-color var(--fd-transition), opacity var(--fd-transition);
+}
+
+.meeting-cancel-btn:hover:not(:disabled) {
+  border-color: var(--fd-error);
+  background: rgba(240,112,112,0.16);
+}
+
+.meeting-cancel-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.meeting-cancel-message {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .reschedule-form {
   display: flex;
   flex-direction: column;

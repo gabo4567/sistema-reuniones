@@ -31,6 +31,23 @@
     `;
   }
 
+  function isCancelledStatus(status) {
+    const normalized = String(status || '').trim().toLowerCase();
+    return ['cancelada', 'cancelado', 'canceled', 'cancelled'].includes(normalized);
+  }
+
+  function buildMeetingActionsHTML(today, status) {
+    if (isCancelledStatus(status)) {
+      return '<div class="fd-msg">Esta reunion esta cancelada y el cupo queda disponible.</div>';
+    }
+
+    return `
+      ${buildRescheduleFormHTML(today)}
+      <button type="button" class="meeting-cancel-btn">Cancelar reunion</button>
+      <div class="meeting-cancel-message" style="display:none;"></div>
+    `;
+  }
+
   function getMeetingScheduleMeta(fields = {}) {
     const rawDate = fields['Fecha'];
     const date = rawDate ? new Date(rawDate) : null;
@@ -111,7 +128,7 @@
                   </div>
                   ${notes ? `<div class="fd-card-notes">${escapeHtml(notes)}</div>` : ''}
                   ${meetLink ? `<a href="${escapeHtml(meetLink)}" class="fd-card-link" target="_blank"><span>${escapeHtml(meetLink)}</span><i data-component="FontIcon" class="icon icon-redirect dls-size-icon-sm dls-text-icon-sm"></i></a>` : ''}
-                  ${buildRescheduleFormHTML(today)}
+                  ${buildMeetingActionsHTML(today, status)}
                 </div>
               </div>
             </div>
@@ -182,7 +199,7 @@
               </div>
               ${notes ? `<div class="fd-card-notes">${escapeHtml(notes)}</div>` : ''}
               ${meetLink ? `<a href="${escapeHtml(meetLink)}" class="fd-card-link" target="_blank"><span>${escapeHtml(meetLink)}</span><i data-component="FontIcon" class="icon icon-redirect dls-size-icon-sm dls-text-icon-sm"></i></a>` : ''}
-              ${buildRescheduleFormHTML(today)}
+              ${buildMeetingActionsHTML(today, status)}
             </div>
           </div>
         </div>
@@ -196,7 +213,10 @@
       const header = e.target.closest('.meet-card-header');
       if (header) {
         if (e.target.closest('a') || e.target.tagName === 'A') return;
-        if (!e.target.closest('.reschedule-btn') && !e.target.closest('.reschedule-form')) {
+        if (!e.target.closest('.reschedule-btn') &&
+            !e.target.closest('.reschedule-form') &&
+            !e.target.closest('.meeting-cancel-btn') &&
+            !e.target.closest('.meeting-cancel-message')) {
           const card = header.closest('.meet-card');
           const extraInfo = card?.querySelector('.meet-card-extra-info');
           if (extraInfo) {
@@ -214,6 +234,48 @@
         const card = rescheduleBtn.closest('.meet-card');
         const form = card?.querySelector('.reschedule-form');
         if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+        return;
+      }
+
+      const cancelBtn = e.target.closest('.meeting-cancel-btn');
+      if (cancelBtn && !cancelBtn.disabled) {
+        const panel = document.getElementById('custom-side-panel');
+        if (!isPanelAuthenticated(panel)) {
+          clearProtectedPanelData(panel);
+          activatePanelTab(panel, 'summary');
+          return;
+        }
+
+        const card = cancelBtn.closest('.meet-card');
+        const recordId = card?.dataset.recordId || '';
+        const telefono = panel?.dataset.currentPhone || '';
+        const messageEl = card?.querySelector('.meeting-cancel-message');
+
+        if (!recordId) {
+          setCancelMeetingMessage(messageEl, 'No se encontro la reunion para cancelar.', true);
+          return;
+        }
+
+        const confirmed = window.confirm('Cancelar esta reunion? Se eliminara el evento de Google Calendar y el cupo quedara disponible.');
+        if (!confirmed) return;
+
+        cancelBtn.disabled = true;
+        cancelBtn.textContent = 'Cancelando...';
+        setCancelMeetingMessage(messageEl, '');
+
+        try {
+          await cancelMeeting(recordId);
+          if (telefono) {
+            const meetings = await fetchMeetingsData(telefono);
+            updatePanelWithData(null, meetings);
+          }
+          setAvailabilityMessage(panel, 'Reunion cancelada. El cupo ya esta disponible.');
+        } catch (err) {
+          console.error('Extension FD: error al cancelar reunion', err);
+          setCancelMeetingMessage(messageEl, 'No se pudo cancelar la reunion.', true);
+          cancelBtn.disabled = false;
+          cancelBtn.textContent = 'Cancelar reunion';
+        }
         return;
       }
 
@@ -729,6 +791,12 @@
     });
   }
 
+  async function cancelMeeting(recordId) {
+    return fetchJson(`${API_BASE_URL}/meetings/${encodeURIComponent(recordId)}`, {
+      method: 'DELETE'
+    });
+  }
+
   async function updateSellerAvailability(recordId, puedeRecibirReuniones) {
     return fetchJson(`${API_BASE_URL}/sellers/${encodeURIComponent(recordId)}`, {
       method: 'PATCH',
@@ -958,7 +1026,7 @@
     const s = (status || '').toLowerCase();
     if (s === 'realizada') return 'fd-badge fd-badge--green';
     if (s === 'pendiente') return 'fd-badge fd-badge--amber';
-    if (s === 'cancelada') return 'fd-badge fd-badge--gray';
+    if (isCancelledStatus(s)) return 'fd-badge fd-badge--gray';
     return 'fd-badge fd-badge--gray';
   }
 
@@ -1239,6 +1307,13 @@
     el.textContent = message || '';
     el.style.display = message ? 'block' : 'none';
     el.className = `reschedule-message fd-msg${message ? (isError ? ' fd-msg--error' : ' fd-msg--success') : ''}`;
+  }
+
+  function setCancelMeetingMessage(el, message, isError = false) {
+    if (!el) return;
+    el.textContent = message || '';
+    el.style.display = message ? 'block' : 'none';
+    el.className = `meeting-cancel-message fd-msg${message ? (isError ? ' fd-msg--error' : ' fd-msg--success') : ''}`;
   }
 
   function setRoleActionMessage(panel, message, isError = false) {

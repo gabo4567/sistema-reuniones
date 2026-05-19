@@ -182,6 +182,11 @@ async function getMeetingByMeetLink(meetUrl) {
   return response.data.records?.[0] || null;
 }
 
+async function getMeetingById(recordId) {
+  const response = await airtableClient.get(`/${MEETINGS_TABLE_NAME}/${recordId}`);
+  return response.data || null;
+}
+
 async function listMeetingsByDateRange(startIso, endIso) {
   const start = escapeFormulaValue(startIso);
   const end = escapeFormulaValue(endIso);
@@ -235,6 +240,7 @@ module.exports = {
   getBusinessUserByEmail,
   getContactByPhone,
   getMeetingsByPhone,
+  getMeetingById,
   getMeetingByMeetLink,
   listMeetingsByDateRange,
   createMeeting,

@@ -175,6 +175,33 @@ async function deleteCalendarEvent(user, calendarEventId) {
   });
 }
 
+async function updateCalendarEvent(user, calendarEventId, data = {}) {
+  const calendar = await getCalendarClient(user);
+  const response = await calendar.events.patch({
+    calendarId: 'primary',
+    eventId: calendarEventId,
+    sendUpdates: 'all',
+    requestBody: data
+  });
+  return response.data;
+}
+
+async function getCalendarEvent(user, calendarEventId) {
+  const calendar = await getCalendarClient(user);
+  try {
+    const response = await calendar.events.get({
+      calendarId: 'primary',
+      eventId: calendarEventId
+    });
+    return response.data || null;
+  } catch (error) {
+    if (error?.response?.status === 404 || error?.code === 404) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 function createSlotDate(date, time) {
   return new Date(buildLocalDateTime(date, time));
 }
@@ -257,6 +284,8 @@ module.exports = {
   addMinutesToTime,
   createMeetEvent,
   deleteCalendarEvent,
+  getCalendarEvent,
+  updateCalendarEvent,
   getBusyTimes,
   getAvailableSlots
 };
