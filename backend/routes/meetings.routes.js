@@ -30,6 +30,56 @@ function wantsHtml(req) {
   return accept.includes('text/html') && !accept.includes('application/json');
 }
 
+function getRequestLogContext(req) {
+  return {
+    requestId: req.get('x-request-id') || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    method: req.method,
+    path: req.originalUrl || req.url,
+    userEmail: req.authUser?.email || req.session?.googleUserEmail || ''
+  };
+}
+
+function getErrorLogDetails(error) {
+  return {
+    message: error?.message || String(error || ''),
+    status: error?.response?.status || error?.status || null,
+    data: error?.response?.data || null
+  };
+}
+
+function logRender(level, event, req, details = {}) {
+  const payload = {
+    level,
+    event,
+    timestamp: new Date().toISOString(),
+    ...getRequestLogContext(req),
+    ...details
+  };
+  const message = JSON.stringify(payload);
+  if (level === 'error') {
+    console.error(message);
+  } else if (level === 'warn') {
+    console.warn(message);
+  } else {
+    console.log(message);
+  }
+}
+
+function logInfo(event, req, details = {}) {
+  logRender('info', event, req, details);
+}
+
+function logWarn(event, req, details = {}) {
+  logRender('warn', event, req, details);
+}
+
+function logError(event, req, error, details = {}) {
+  logRender('error', event, req, {
+    ...details,
+    error: getErrorLogDetails(error)
+  });
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -480,11 +530,13 @@ async function getAirtableBusyBySeller(entries = [], date, options = {}) {
 }
 
 async function deleteCalendarEventSafely(user, calendarEventId) {
-  if (!user || !calendarEventId) return;
+  if (!user || !calendarEventId) return false;
   try {
     await deleteCalendarEvent(user, calendarEventId);
+    return true;
   } catch (error) {
     console.warn('No se pudo eliminar evento de Calendar durante rollback:', error.response?.data || error.message);
+    return false;
   }
 }
 
@@ -1017,6 +1069,11 @@ function renderDataPage({ title, subtitle, badge, fields = null, records = null,
 router.get('/contact/:phone', async (req, res) => {
   try {
     const contact = await getContactByPhone(req.params.phone);
+    logInfo('contact.fetch.success', req, {
+      telefono: req.params.phone,
+      found: Boolean(contact?.id),
+      contactRecordId: contact?.id || ''
+    });
     if (wantsHtml(req)) {
       return res.send(renderDataPage({
         title: 'Ficha de contacto',
@@ -1028,6 +1085,7 @@ router.get('/contact/:phone', async (req, res) => {
     }
     res.json(contact?.fields || null);
   } catch (error) {
+    logError('contact.fetch.error', req, error, { telefono: req.params.phone });
     if (wantsHtml(req)) {
       return res.status(500).send(renderDataPage({
         title: 'Ficha de contacto',
@@ -1048,6 +1106,7 @@ router.get('/meetings/by-link', async (req, res) => {
     const { meetUrl } = req.query;
 
     if (!meetUrl) {
+      logWarn('meeting.fetch_by_link.validation_error', req, { reason: 'missing_meet_url' });
       if (wantsHtml(req)) {
         return res.status(400).send(renderDataPage({
           title: 'Reunion por link de Meet',
@@ -1060,6 +1119,11 @@ router.get('/meetings/by-link', async (req, res) => {
     }
 
     const meeting = await getMeetingByMeetLink(meetUrl);
+    logInfo('meeting.fetch_by_link.success', req, {
+      found: Boolean(meeting?.id),
+      meetingRecordId: meeting?.id || '',
+      meetUrl
+    });
     if (wantsHtml(req)) {
       return res.send(renderDataPage({
         title: 'Reunion por link de Meet',
@@ -1071,6 +1135,7 @@ router.get('/meetings/by-link', async (req, res) => {
     }
     return res.json(meeting);
   } catch (error) {
+    logError('meeting.fetch_by_link.error', req, error, { meetUrl: req.query?.meetUrl || '' });
     if (wantsHtml(req)) {
       return res.status(500).send(renderDataPage({
         title: 'Reunion por link de Meet',
@@ -1089,6 +1154,11 @@ router.get('/meetings/by-link', async (req, res) => {
 router.get('/meetings/:phone', async (req, res) => {
   try {
     const meetings = await getMeetingsByPhone(req.params.phone);
+    logInfo('meeting.fetch_by_phone.success', req, {
+      telefono: req.params.phone,
+      meetingsCount: meetings.length,
+      meetingRecordIds: meetings.map((meeting) => meeting.id).filter(Boolean)
+    });
     if (wantsHtml(req)) {
       return res.send(renderDataPage({
         title: 'Reuniones del contacto',
@@ -1100,6 +1170,7 @@ router.get('/meetings/:phone', async (req, res) => {
     }
     res.json(meetings);
   } catch (error) {
+    logError('meeting.fetch_by_phone.error', req, error, { telefono: req.params.phone });
     if (wantsHtml(req)) {
       return res.status(500).send(renderDataPage({
         title: 'Reuniones del contacto',
@@ -1117,9 +1188,21 @@ router.get('/meetings/:phone', async (req, res) => {
 
 router.patch('/meetings/:id', async (req, res) => {
   try {
+    logInfo('meeting.update.start', req, {
+      meetingRecordId: req.params.id,
+      fields: Object.keys(req.body || {})
+    });
     const updatedMeeting = await updateMeeting(req.params.id, req.body);
+    logInfo('meeting.update.success', req, {
+      meetingRecordId: req.params.id,
+      updatedFields: Object.keys(req.body || {})
+    });
     res.json(updatedMeeting);
   } catch (error) {
+    logError('meeting.update.error', req, error, {
+      meetingRecordId: req.params.id,
+      fields: Object.keys(req.body || {})
+    });
     res.status(500).json({
       error: 'Failed to update meeting',
       details: error.response?.data || error.message
@@ -1134,6 +1217,13 @@ router.post('/book', async (req, res) => {
   const normalizedPhase = normalizeMeetingPhase(phase) || 'FASE 1';
 
   if (!telefono || !nombre || !email || !date || !time || !duration) {
+    logWarn('meeting.book.validation_error', req, {
+      reason: 'missing_required_fields',
+      telefono,
+      date,
+      time,
+      duration
+    });
     return res.status(400).json({
       error: 'Missing required fields',
       required: ['telefono', 'nombre', 'email', 'date', 'time', 'duration']
@@ -1141,18 +1231,22 @@ router.post('/book', async (req, res) => {
   }
 
   if (!isValidEmail(email)) {
+    logWarn('meeting.book.validation_error', req, { reason: 'invalid_email', telefono, date, time });
     return res.status(400).json({ error: 'email must be valid' });
   }
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    logWarn('meeting.book.validation_error', req, { reason: 'invalid_date', telefono, date, time });
     return res.status(400).json({ error: 'date must be provided in YYYY-MM-DD format' });
   }
 
   if (!/^\d{2}:\d{2}$/.test(time)) {
+    logWarn('meeting.book.validation_error', req, { reason: 'invalid_time', telefono, date, time });
     return res.status(400).json({ error: 'time must be provided in HH:mm format' });
   }
 
   if (![15, 30, 60].includes(parsedDuration)) {
+    logWarn('meeting.book.validation_error', req, { reason: 'invalid_duration', telefono, date, time, duration });
     return res.status(400).json({ error: 'duration must be one of: 15, 30, 60' });
   }
 
@@ -1161,18 +1255,43 @@ router.post('/book', async (req, res) => {
   const endDateTime = buildLocalDateTime(date, endTime);
 
   if (Number.isNaN(new Date(startDateTime).getTime()) || Number.isNaN(new Date(endDateTime).getTime())) {
+    logWarn('meeting.book.validation_error', req, { reason: 'invalid_datetime', telefono, date, time, duration: parsedDuration });
     return res.status(400).json({ error: 'date/time combination is invalid' });
   }
 
   const workingSlotExists = getAvailableSlots(date, parsedDuration, { slot_check: [] })
     .some((slot) => slot.time === time);
   if (!workingSlotExists) {
+    logWarn('meeting.book.rejected', req, {
+      reason: 'outside_working_slots',
+      telefono,
+      date,
+      time,
+      duration: parsedDuration
+    });
     return res.status(400).json({ error: 'Requested time is outside configured working slots' });
   }
 
   try {
+    logInfo('meeting.book.start', req, {
+      telefono,
+      date,
+      time,
+      duration: parsedDuration,
+      hasRequestedSeller,
+      assignedSellerRecordId: assignedSellerRecordId || '',
+      assignedSellerName: assignedSellerName || ''
+    });
+
     const existingMeeting = await findActiveFutureMeetingForPhone(telefono);
     if (existingMeeting) {
+      logWarn('meeting.book.rejected', req, {
+        reason: 'client_active_future_meeting',
+        telefono,
+        date,
+        time,
+        existingMeetingId: existingMeeting.id
+      });
       return res.status(409).json({
         error: 'Client already has an active meeting',
         message: 'Este cliente ya tiene una reunion activa o futura asignada.',
@@ -1183,6 +1302,13 @@ router.post('/book', async (req, res) => {
     const activeUsers = await getActiveUsers();
     const eligibleSellers = await getEligibleSellerEntries(activeUsers, { date, startDateTime, endDateTime });
     if (!eligibleSellers.length) {
+      logWarn('meeting.book.rejected', req, {
+        reason: 'no_active_sellers_available',
+        telefono,
+        date,
+        time,
+        activeUsersCount: activeUsers.length
+      });
       return res.status(409).json({ error: 'No active sellers available' });
     }
 
@@ -1194,16 +1320,37 @@ router.post('/book', async (req, res) => {
     if (hasRequestedSeller) {
       const requestedEntry = findRequestedSellerEntry(eligibleSellers, { assignedSellerRecordId, assignedSellerName });
       if (!requestedEntry) {
+        logWarn('meeting.book.rejected', req, {
+          reason: 'requested_seller_not_eligible',
+          telefono,
+          date,
+          time,
+          assignedSellerRecordId: assignedSellerRecordId || '',
+          assignedSellerName: assignedSellerName || ''
+        });
         return res.status(409).json({ error: 'Selected seller is not eligible for the requested slot' });
       }
 
       if (!canAssignSeller && !isSameSellerEntry(requestedEntry, requestingSellerEntry)) {
+        logWarn('meeting.book.rejected', req, {
+          reason: 'non_manager_selected_other_seller',
+          telefono,
+          date,
+          time,
+          requestedSeller: getEntryDisplayName(requestedEntry)
+        });
         return res.status(403).json({ error: 'Only managers can choose another assigned seller' });
       }
 
       assignmentPool = [requestedEntry];
     } else if (!canAssignSeller) {
       if (!requestingSellerEntry) {
+        logWarn('meeting.book.rejected', req, {
+          reason: 'requesting_seller_not_eligible',
+          telefono,
+          date,
+          time
+        });
         return res.status(409).json({
           error: 'Requesting seller is not eligible for the requested slot'
         });
@@ -1217,6 +1364,14 @@ router.post('/book', async (req, res) => {
     const airtableBusyBySeller = await getAirtableBusyBySeller(assignmentPool, date);
     const assignedEntry = await findAvailableUser(assignmentPool, startDateTime, endDateTime, airtableBusyBySeller);
     if (!assignedEntry) {
+      logWarn('meeting.book.rejected', req, {
+        reason: hasRequestedSeller ? 'requested_seller_unavailable' : 'no_users_available_for_slot',
+        telefono,
+        date,
+        time,
+        duration: parsedDuration,
+        assignmentPool: assignmentPool.map(getEntryDisplayName)
+      });
       return res.status(409).json({
         error: hasRequestedSeller
           ? 'Selected seller is not available for requested slot'
@@ -1270,6 +1425,17 @@ router.post('/book', async (req, res) => {
       throw error;
     }
 
+    logInfo('meeting.book.success', req, {
+      telefono,
+      date,
+      time,
+      duration: parsedDuration,
+      sellerName,
+      assignedUser: assignedUser.email,
+      calendarEventId: calendarEvent.id,
+      meetingRecordId: meeting?.id || null
+    });
+
     return res.status(201).json({
       meetLink,
       vendedora: sellerName || assignedUser.email,
@@ -1278,7 +1444,12 @@ router.post('/book', async (req, res) => {
       meetingRecordId: meeting?.id || null
     });
   } catch (error) {
-    console.error('Error booking meeting:', error.response?.data || error.message);
+    logError('meeting.book.error', req, error, {
+      telefono,
+      date,
+      time,
+      duration: parsedDuration
+    });
     return res.status(500).json({
       error: 'Failed to book meeting',
       details: error.response?.data || error.message
@@ -1291,6 +1462,7 @@ router.get('/availability', async (req, res) => {
   const parsedDuration = Number(duration);
 
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    logWarn('availability.validation_error', req, { reason: 'invalid_date', date, duration });
     if (wantsHtml(req)) {
       return res.status(400).send(renderAvailabilityPage({
         date,
@@ -1302,6 +1474,7 @@ router.get('/availability', async (req, res) => {
   }
 
   if (![15, 30, 60].includes(parsedDuration)) {
+    logWarn('availability.validation_error', req, { reason: 'invalid_duration', date, duration });
     if (wantsHtml(req)) {
       return res.status(400).send(renderAvailabilityPage({
         date,
@@ -1313,9 +1486,16 @@ router.get('/availability', async (req, res) => {
   }
 
   try {
+    logInfo('availability.start', req, { date, duration: parsedDuration });
     const loggedUsers = await getActiveUsers();
-    console.log('Usuarios cargados desde Airtable:', loggedUsers.map((user) => user.email));
+    logInfo('availability.auth_users_loaded', req, {
+      date,
+      duration: parsedDuration,
+      activeUsersCount: loggedUsers.length,
+      activeUsers: loggedUsers.map((user) => user.email)
+    });
     if (loggedUsers.length === 0) {
+      logWarn('availability.rejected', req, { reason: 'no_logged_users', date, duration: parsedDuration });
       if (wantsHtml(req)) {
         return res.send(renderAvailabilityPage({
           date,
@@ -1335,6 +1515,12 @@ router.get('/availability', async (req, res) => {
     const busyByUser = {};
 
     if (operationalSellerEntries.length === 0) {
+      logWarn('availability.rejected', req, {
+        reason: 'no_operational_sellers',
+        date,
+        duration: parsedDuration,
+        activeUsersCount: loggedUsers.length
+      });
       if (wantsHtml(req)) {
         return res.send(renderAvailabilityPage({
           date,
@@ -1349,18 +1535,44 @@ router.get('/availability', async (req, res) => {
       const user = entry.user;
       const seller = entry.seller;
       try {
-        console.log('Procesando usuario:', user.email, '->', seller.nombre);
+        logInfo('availability.seller_check.start', req, {
+          date,
+          sellerRecordId: seller.recordId,
+          sellerName: seller.nombre,
+          userEmail: user.email
+        });
         const busyTimes = await getBusyTimes(user, timeMin, timeMax);
         const blockBusyTimes = getSellerBlockBusyTimes(seller.recordId, date, sellerBlocks);
         const workHourBusyTimes = getCustomWorkHourBusyTimes(seller.recordId, date, workHoursBySeller);
         const airtableBusyTimes = airtableBusyBySeller[seller.recordId] || [];
         busyByUser[seller.nombre || user.email] = [...busyTimes, ...blockBusyTimes, ...workHourBusyTimes, ...airtableBusyTimes];
+        logInfo('availability.seller_check.success', req, {
+          date,
+          sellerRecordId: seller.recordId,
+          sellerName: seller.nombre,
+          userEmail: user.email,
+          calendarBusyCount: busyTimes.length,
+          blockBusyCount: blockBusyTimes.length,
+          workHourBusyCount: workHourBusyTimes.length,
+          airtableBusyCount: airtableBusyTimes.length
+        });
       } catch (userError) {
-        console.error(`Error procesando usuario ${user.email}:`, userError.response?.data || userError.message);
+        logError('availability.seller_check.error', req, userError, {
+          date,
+          sellerRecordId: seller.recordId,
+          sellerName: seller.nombre,
+          userEmail: user.email
+        });
       }
     }
 
     if (Object.keys(busyByUser).length === 0) {
+      logWarn('availability.rejected', req, {
+        reason: 'no_calendar_checks_completed',
+        date,
+        duration: parsedDuration,
+        operationalSellersCount: operationalSellerEntries.length
+      });
       if (wantsHtml(req)) {
         return res.send(renderAvailabilityPage({
           date,
@@ -1387,6 +1599,15 @@ router.get('/availability', async (req, res) => {
         }))
     }));
 
+    logInfo('availability.success', req, {
+      date,
+      duration: parsedDuration,
+      operationalSellersCount: operationalSellerEntries.length,
+      checkedSellersCount: Object.keys(busyByUser).length,
+      slotsCount: slots.length,
+      availableSellersCount: new Set(slots.flatMap((slot) => (slot.available_sellers || []).map((seller) => seller.recordId || seller.nombre))).size
+    });
+
     if (wantsHtml(req)) {
       return res.send(renderAvailabilityPage({
         date,
@@ -1397,6 +1618,7 @@ router.get('/availability', async (req, res) => {
 
     return res.json(slots);
   } catch (error) {
+    logError('availability.error', req, error, { date, duration: parsedDuration });
     if (wantsHtml(req)) {
       return res.status(500).send(renderAvailabilityPage({
         date,
@@ -1416,6 +1638,14 @@ router.post('/reschedule', async (req, res) => {
   const parsedDuration = Number(duration);
 
   if (!recordId || !date || !time || !duration) {
+    logWarn('meeting.reschedule.validation_error', req, {
+      reason: 'missing_required_fields',
+      recordId,
+      telefono,
+      date,
+      time,
+      duration
+    });
     return res.status(400).json({
       error: 'Missing required fields',
       required: ['recordId', 'date', 'time', 'duration']
@@ -1423,14 +1653,17 @@ router.post('/reschedule', async (req, res) => {
   }
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    logWarn('meeting.reschedule.validation_error', req, { reason: 'invalid_date', recordId, telefono, date, time });
     return res.status(400).json({ error: 'date must be provided in YYYY-MM-DD format' });
   }
 
   if (!/^\d{2}:\d{2}$/.test(time)) {
+    logWarn('meeting.reschedule.validation_error', req, { reason: 'invalid_time', recordId, telefono, date, time });
     return res.status(400).json({ error: 'time must be provided in HH:mm format' });
   }
 
   if (![15, 30, 60].includes(parsedDuration)) {
+    logWarn('meeting.reschedule.validation_error', req, { reason: 'invalid_duration', recordId, telefono, date, time, duration });
     return res.status(400).json({ error: 'duration must be one of: 15, 30, 60' });
   }
 
@@ -1439,20 +1672,54 @@ router.post('/reschedule', async (req, res) => {
   const endDateTime = buildLocalDateTime(date, endTime);
 
   if (Number.isNaN(new Date(startDateTime).getTime()) || Number.isNaN(new Date(endDateTime).getTime())) {
+    logWarn('meeting.reschedule.validation_error', req, {
+      reason: 'invalid_datetime',
+      recordId,
+      telefono,
+      date,
+      time,
+      duration: parsedDuration
+    });
     return res.status(400).json({ error: 'date/time combination is invalid' });
   }
 
   const workingSlotExists = getAvailableSlots(date, parsedDuration, { slot_check: [] })
     .some((slot) => slot.time === time);
   if (!workingSlotExists) {
+    logWarn('meeting.reschedule.rejected', req, {
+      reason: 'outside_working_slots',
+      recordId,
+      telefono,
+      date,
+      time,
+      duration: parsedDuration
+    });
     return res.status(400).json({ error: 'Requested time is outside configured working slots' });
   }
 
   try {
+    logInfo('meeting.reschedule.start', req, {
+      recordId,
+      telefono,
+      date,
+      time,
+      duration: parsedDuration,
+      oldVendedora: oldVendedora || '',
+      oldCalendarEventId: oldCalendarEventId || ''
+    });
+
     const activeUsers = await getActiveUsers();
     const eligibleSellers = await getEligibleSellerEntries(activeUsers, { date, startDateTime, endDateTime });
 
     if (!eligibleSellers.length) {
+      logWarn('meeting.reschedule.rejected', req, {
+        reason: 'no_active_sellers_available',
+        recordId,
+        telefono,
+        date,
+        time,
+        activeUsersCount: activeUsers.length
+      });
       return res.status(409).json({ error: 'No active sellers available for the new slot' });
     }
 
@@ -1463,16 +1730,39 @@ router.post('/reschedule', async (req, res) => {
     if (oldVendedora) {
       const oldSellerEntry = findRequestedSellerEntry(eligibleSellers, { assignedSellerName: oldVendedora });
       if (!oldSellerEntry) {
+        logWarn('meeting.reschedule.rejected', req, {
+          reason: 'current_seller_not_eligible',
+          recordId,
+          telefono,
+          date,
+          time,
+          oldVendedora
+        });
         return res.status(409).json({ error: 'Current seller is not eligible for the requested slot' });
       }
 
       if (!canAssignSeller && !isSameSellerEntry(oldSellerEntry, requestingSellerEntry)) {
+        logWarn('meeting.reschedule.rejected', req, {
+          reason: 'non_manager_reschedule_other_seller',
+          recordId,
+          telefono,
+          date,
+          time,
+          oldVendedora
+        });
         return res.status(403).json({ error: 'Only managers can reschedule another seller meeting' });
       }
 
       assignmentPool = [oldSellerEntry];
     } else if (!canAssignSeller) {
       if (!requestingSellerEntry) {
+        logWarn('meeting.reschedule.rejected', req, {
+          reason: 'requesting_seller_not_eligible',
+          recordId,
+          telefono,
+          date,
+          time
+        });
         return res.status(409).json({ error: 'Requesting seller is not eligible for the requested slot' });
       }
 
@@ -1482,6 +1772,15 @@ router.post('/reschedule', async (req, res) => {
     const airtableBusyBySeller = await getAirtableBusyBySeller(assignmentPool, date, { excludeRecordId: recordId });
     const assignedEntry = await findAvailableUser(assignmentPool, startDateTime, endDateTime, airtableBusyBySeller);
     if (!assignedEntry) {
+      logWarn('meeting.reschedule.rejected', req, {
+        reason: 'no_sellers_available_for_slot',
+        recordId,
+        telefono,
+        date,
+        time,
+        duration: parsedDuration,
+        assignmentPool: assignmentPool.map(getEntryDisplayName)
+      });
       return res.status(409).json({ error: 'No sellers available for the requested time' });
     }
 
@@ -1529,12 +1828,51 @@ router.post('/reschedule', async (req, res) => {
         );
         if (oldSeller?.correo) {
           const oldUser = activeUsers.find((u) => normalizeEmail(u.email) === normalizeEmail(oldSeller.correo));
-          await deleteCalendarEventSafely(oldUser, oldCalendarEventId);
+          const deleted = await deleteCalendarEventSafely(oldUser, oldCalendarEventId);
+          if (deleted) {
+            logInfo('meeting.reschedule.old_calendar_deleted', req, {
+              recordId,
+              oldCalendarEventId,
+              oldVendedora,
+              oldUserEmail: oldUser?.email || ''
+            });
+          } else {
+            logWarn('meeting.reschedule.old_calendar_delete_skipped', req, {
+              reason: oldUser ? 'delete_failed' : 'old_user_not_found',
+              recordId,
+              oldCalendarEventId,
+              oldVendedora,
+              oldSellerEmail: oldSeller.correo
+            });
+          }
+        } else {
+          logWarn('meeting.reschedule.old_calendar_delete_skipped', req, {
+            reason: 'old_seller_not_found',
+            recordId,
+            oldCalendarEventId,
+            oldVendedora
+          });
         }
       } catch (deleteErr) {
-        console.warn('No se pudo eliminar el evento anterior del calendario:', deleteErr.response?.data || deleteErr.message);
+        logError('meeting.reschedule.old_calendar_delete_error', req, deleteErr, {
+          recordId,
+          oldCalendarEventId,
+          oldVendedora
+        });
       }
     }
+
+    logInfo('meeting.reschedule.success', req, {
+      recordId,
+      telefono,
+      date,
+      time,
+      duration: parsedDuration,
+      sellerName,
+      assignedUser: assignedUser.email,
+      calendarEventId: calendarEvent.id,
+      oldCalendarEventId: oldCalendarEventId || ''
+    });
 
     return res.json({
       meetLink,
@@ -1542,7 +1880,13 @@ router.post('/reschedule', async (req, res) => {
       calendarEventId: calendarEvent.id
     });
   } catch (error) {
-    console.error('Error rescheduling meeting:', error.response?.data || error.message);
+    logError('meeting.reschedule.error', req, error, {
+      recordId,
+      telefono,
+      date,
+      time,
+      duration: parsedDuration
+    });
     return res.status(500).json({
       error: 'Failed to reschedule meeting',
       details: error.response?.data || error.message
