@@ -864,6 +864,54 @@
     results.innerHTML = `<div class="fd-msg${isError ? ' fd-msg--error' : ''}">${escapeHtml(message)}</div>`;
   }
 
+  function collapseMeetingAvailability(panel) {
+    if (!panel) return;
+
+    panel.querySelectorAll('.meet-card').forEach(card => {
+      card.dataset.rescheduleSelectedTime = '';
+    });
+
+    panel.querySelectorAll('.meet-card-extra-info').forEach(extraInfo => {
+      extraInfo.style.display = 'none';
+    });
+
+    panel.querySelectorAll('.meet-card-header, .fd-card').forEach(el => {
+      el.classList.remove('is-open');
+    });
+
+    panel.querySelectorAll('.reschedule-form').forEach(form => {
+      form.style.display = 'none';
+      form.querySelectorAll('.reschedule-slot-item').forEach(slot => {
+        slot.dataset.selected = 'false';
+        slot.classList.remove('fd-slot-item--selected');
+      });
+      const slotsContainer = form.querySelector('.reschedule-slots');
+      if (slotsContainer) slotsContainer.innerHTML = '';
+      const confirmBtn = form.querySelector('.reschedule-confirm-btn');
+      if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Confirmar reprogramacion';
+      }
+      setRescheduleMessage(form, '');
+    });
+  }
+
+  function resetAvailabilityState(panel, message = 'Selecciona una fecha y duracion para consultar horarios', isError = false) {
+    if (!panel) return;
+
+    panel.dataset.selectedBookingTime = '';
+    panel.dataset.selectedBookingSellers = '[]';
+    panel.dataset.selectedBookingSellerRecordId = '';
+    panel.dataset.selectedBookingSellerName = '';
+    panel.dataset.availabilityDate = '';
+    resetBookingActionsLocation(panel);
+    renderBookingAssignmentSelector(panel, []);
+    setBookingMessage(panel, '', false);
+    setBookingButtonState(panel, false);
+    setAvailabilityMessage(panel, message, isError);
+    collapseMeetingAvailability(panel);
+  }
+
   function setBookingMessage(panel, message, isError = false, link = '') {
     const messageEl = panel?.querySelector('#booking-message');
     if (!messageEl) return;
@@ -942,10 +990,6 @@
     panel.dataset.currentPhone = '';
     panel.dataset.currentName = '';
     panel.dataset.currentEmail = '';
-    panel.dataset.selectedBookingTime = '';
-    panel.dataset.selectedBookingSellers = '[]';
-    panel.dataset.selectedBookingSellerRecordId = '';
-    panel.dataset.selectedBookingSellerName = '';
 
     const subtitle = panel.querySelector('.panel-subtitle');
     if (subtitle) subtitle.textContent = 'Acceso restringido';
@@ -987,10 +1031,7 @@
       panelMeetingsContainer.innerHTML = `<div class="fd-empty-state">${escapeHtml(message)}</div>`;
     }
 
-    setAvailabilityMessage(panel, message, true);
-    renderBookingAssignmentSelector(panel, []);
-    setBookingMessage(panel, '', false);
-    setBookingButtonState(panel, false);
+    resetAvailabilityState(panel, message, true);
   }
 
   function activatePanelTab(panel, tabName) {
@@ -2013,6 +2054,7 @@
 
     try {
       const currentUser = await fetchCurrentUser();
+      const wasAuthenticated = panel?.dataset.currentUserAuthenticated === 'true';
       panel.dataset.currentUserRole = currentUser?.usuario?.rol || currentUser?.auth?.rol || '';
       panel.dataset.currentUserEmail = currentUser?.email || '';
       panel.dataset.currentUserRecordId = currentUser?.usuario?.recordId || '';
@@ -2022,6 +2064,8 @@
 
       if (!currentUser?.authenticated) {
         clearProtectedPanelData(panel);
+      } else if (!wasAuthenticated) {
+        resetAvailabilityState(panel);
       }
 
       const gerenteSection = panel?.querySelector('#fd-gerente-section');
@@ -2660,7 +2704,11 @@
       const visible = isAllowedUrl();
       btn.style.display = visible ? 'flex' : 'none';
       if (panelOrForm) {
+        if (visible && isRespond) {
+          resetAvailabilityState(panelOrForm);
+        }
         if (!visible) {
+          resetAvailabilityState(panelOrForm);
           panelOrForm.classList.remove('open', 'qdulke');
           if (isRespond) panelOrForm.style.right = `-${panelOrForm.offsetWidth}px`;
         }
@@ -2835,6 +2883,7 @@
 
     const minimizeBtn = panelOrForm.querySelector('#panel-minimize-btn');
     minimizeBtn.addEventListener('click', (e) => {
+      resetAvailabilityState(panelOrForm);
       panelOrForm.classList.remove('open');
       const currentWidth = panelOrForm.offsetWidth;
       panelOrForm.style.right = `-${currentWidth}px`;
@@ -2845,6 +2894,7 @@
       if (panelOrForm.classList.contains('open') && 
           !panelOrForm.contains(e.target) && 
           !btn.contains(e.target)) {
+        resetAvailabilityState(panelOrForm);
         panelOrForm.classList.remove('open');
         const currentWidth = panelOrForm.offsetWidth;
         panelOrForm.style.right = `-${currentWidth}px`;
@@ -3133,6 +3183,11 @@
         const isOpen = panelOrForm.classList.toggle('open');
         panelOrForm.style.right = isOpen ? '0' : `-${panelOrForm.offsetWidth}px`;
         
+        if (!isOpen) {
+          resetAvailabilityState(panelOrForm);
+          return;
+        }
+
         if (isOpen) {
           const phone = getRespondPagePhone();
           const respondName = getRespondPageName();
@@ -3142,6 +3197,10 @@
             Telefono: phone || '',
             Correo: respondEmail || ''
           };
+          const previousPhone = panelOrForm.dataset.currentPhone || '';
+          if (previousPhone && previousPhone !== (phone || '')) {
+            resetAvailabilityState(panelOrForm);
+          }
           panelOrForm.dataset.currentPhone = phone || '';
           panelOrForm.dataset.currentName = respondContactFields.Nombre;
           const phoneEl = panelOrForm.querySelector('#fd-contact-phone');

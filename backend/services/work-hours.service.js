@@ -27,6 +27,46 @@ function isValidTime(value) {
   return /^\d{2}:\d{2}$/.test(String(value || ''));
 }
 
+function normalizeTimeValue(value) {
+  const rawValue = String(value || '').trim();
+  const match = rawValue.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (match) {
+    return `${String(match[1]).padStart(2, '0')}:${match[2]}`;
+  }
+
+  return rawValue;
+}
+
+function normalizeTextKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function normalizeDayKey(value) {
+  const normalizedDay = normalizeTextKey(value);
+  const dayAliases = {
+    monday: 'monday',
+    lunes: 'monday',
+    tuesday: 'tuesday',
+    martes: 'tuesday',
+    wednesday: 'wednesday',
+    miercoles: 'wednesday',
+    thursday: 'thursday',
+    jueves: 'thursday',
+    friday: 'friday',
+    viernes: 'friday',
+    saturday: 'saturday',
+    sabado: 'saturday',
+    sunday: 'sunday',
+    domingo: 'sunday'
+  };
+
+  return dayAliases[normalizedDay] || normalizedDay;
+}
+
 function toMinutes(time) {
   const [hours, minutes] = String(time || '00:00').split(':').map(Number);
   return (hours * 60) + minutes;
@@ -35,8 +75,8 @@ function toMinutes(time) {
 function normalizeRanges(ranges = []) {
   return ranges
     .map((range) => ({
-      start: String(range.start || '').trim(),
-      end: String(range.end || '').trim()
+      start: normalizeTimeValue(range.start),
+      end: normalizeTimeValue(range.end)
     }))
     .filter((range) => isValidTime(range.start) && isValidTime(range.end) && toMinutes(range.start) < toMinutes(range.end))
     .sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
@@ -60,12 +100,18 @@ function getDefaultWeeklySchedule() {
 
 function normalizeWeeklySchedule(weekly = {}, fallbackRanges = []) {
   const defaults = getDefaultWeeklySchedule();
-  const hasWeekly = weekly && typeof weekly === 'object' && DAY_KEYS.some((day) => weekly[day]);
+  const normalizedWeekly = weekly && typeof weekly === 'object'
+    ? Object.entries(weekly).reduce((acc, [day, config]) => {
+        acc[normalizeDayKey(day)] = config;
+        return acc;
+      }, {})
+    : {};
+  const hasWeekly = DAY_KEYS.some((day) => normalizedWeekly[day]);
   const legacyRanges = normalizeRanges(fallbackRanges);
 
   return Object.fromEntries(DAY_KEYS.map((day) => {
     const source = hasWeekly
-      ? (weekly[day] || {})
+      ? (normalizedWeekly[day] || {})
       : {
           enabled: legacyRanges.length > 0 ? ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].includes(day) : defaults[day].enabled,
           ranges: legacyRanges.length ? legacyRanges : defaults[day].ranges
@@ -99,10 +145,10 @@ function mapRecordToWorkHourRow(record) {
   return {
     recordId: record.id,
     sellerRecordIds: getLinkedSellerRecordIds(fields),
-    day: fields.Dia || '',
+    day: normalizeDayKey(fields.Dia),
     enabled: fields.Activo === true,
-    start: fields['Hora inicio'] || '',
-    end: fields['Hora fin'] || '',
+    start: normalizeTimeValue(fields['Hora inicio']),
+    end: normalizeTimeValue(fields['Hora fin']),
     order: Number(fields.Orden || 0)
   };
 }

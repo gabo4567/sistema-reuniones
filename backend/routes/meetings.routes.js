@@ -308,52 +308,17 @@ function normalizeSellerName(value) {
   return String(value || '').trim();
 }
 
-function isAirtableSelectOptionError(error) {
-  const details = error.response?.data || error;
-  const message = JSON.stringify(details);
-  return message.includes('INVALID_MULTIPLE_CHOICE_OPTIONS') ||
-    message.includes('Insufficient permissions to create new select option');
-}
-
-async function createMeetingWithSelectFallback(fields) {
-  try {
-    return await createMeeting(fields);
-  } catch (error) {
-    if (!isAirtableSelectOptionError(error)) {
-      throw error;
-    }
-
-    const fallbackFields = { ...fields };
-    delete fallbackFields.Vendedora;
-    delete fallbackFields['Asignado por'];
-    console.warn('Airtable rejected select option while creating meeting. Retrying without Vendedora/Asignado por.', error.response?.data || error.message);
-    return createMeeting(fallbackFields);
-  }
-}
-
-async function updateMeetingWithSelectFallback(recordId, fields) {
-  try {
-    return await updateMeeting(recordId, fields);
-  } catch (error) {
-    if (!isAirtableSelectOptionError(error)) {
-      throw error;
-    }
-
-    const fallbackFields = { ...fields };
-    delete fallbackFields.Vendedora;
-    delete fallbackFields['Asignado por'];
-    console.warn('Airtable rejected select option while updating meeting. Retrying without Vendedora/Asignado por.', error.response?.data || error.message);
-    return updateMeeting(recordId, fallbackFields);
-  }
-}
-
 function normalizeMeetingPhase(value) {
   const match = String(value || '').match(/\bfase\s*([12])\b/i);
   return match ? `FASE ${match[1]}` : '';
 }
 
 function normalizeLookupValue(value) {
-  return String(value || '').trim().toLowerCase();
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
 }
 
 function isManagerRoleValue(role) {
@@ -411,6 +376,14 @@ function findRequestingSellerEntry(entries = [], req) {
     return normalizeEmail(entry.user?.email) === email ||
       normalizeEmail(entry.seller?.correo) === email;
   }) || null;
+}
+
+function isSameSellerEntry(a, b) {
+  if (!a || !b) return false;
+  if (a.seller?.recordId && b.seller?.recordId && a.seller.recordId === b.seller.recordId) return true;
+  const aEmail = normalizeEmail(a.user?.email || a.seller?.correo);
+  const bEmail = normalizeEmail(b.user?.email || b.seller?.correo);
+  return Boolean(aEmail && bEmail && aEmail === bEmail);
 }
 
 function addDaysToDateString(date, daysToAdd) {
@@ -504,6 +477,15 @@ async function getAirtableBusyBySeller(entries = [], date, options = {}) {
     entry.seller.recordId,
     getAirtableMeetingBusyTimesForSeller(entry, meetings, options)
   ]));
+}
+
+async function deleteCalendarEventSafely(user, calendarEventId) {
+  if (!user || !calendarEventId) return;
+  try {
+    await deleteCalendarEvent(user, calendarEventId);
+  } catch (error) {
+    console.warn('No se pudo eliminar evento de Calendar durante rollback:', error.response?.data || error.message);
+  }
 }
 
 function isActiveFutureMeeting(record, { excludeRecordId = '' } = {}) {
@@ -1135,7 +1117,7 @@ router.get('/meetings/:phone', async (req, res) => {
 
 router.patch('/meetings/:id', async (req, res) => {
   try {
-    const updatedMeeting = await updateMeetingWithSelectFallback(req.params.id, req.body);
+    const updatedMeeting = await updateMeeting(req.params.id, req.body);
     res.json(updatedMeeting);
   } catch (error) {
     res.status(500).json({
@@ -1206,21 +1188,21 @@ router.post('/book', async (req, res) => {
 
     const sellerLoadMap = await getSellerLoadMapForDate(date);
     const canAssignSeller = await isRequestingUserManager(req);
+    const requestingSellerEntry = findRequestingSellerEntry(eligibleSellers, req);
     let assignmentPool = eligibleSellers;
 
     if (hasRequestedSeller) {
-      if (!canAssignSeller) {
-        return res.status(403).json({ error: 'Only managers can choose the assigned seller' });
-      }
-
       const requestedEntry = findRequestedSellerEntry(eligibleSellers, { assignedSellerRecordId, assignedSellerName });
       if (!requestedEntry) {
         return res.status(409).json({ error: 'Selected seller is not eligible for the requested slot' });
       }
 
+      if (!canAssignSeller && !isSameSellerEntry(requestedEntry, requestingSellerEntry)) {
+        return res.status(403).json({ error: 'Only managers can choose another assigned seller' });
+      }
+
       assignmentPool = [requestedEntry];
     } else if (!canAssignSeller) {
-      const requestingSellerEntry = findRequestingSellerEntry(eligibleSellers, req);
       if (!requestingSellerEntry) {
         return res.status(409).json({
           error: 'Requesting seller is not eligible for the requested slot'
@@ -1260,27 +1242,33 @@ router.post('/book', async (req, res) => {
       (entryPoint) => entryPoint.entryPointType === 'video'
     )?.uri || '';
 
-    const client = await findOrCreateClient({ telefono, nombre, email });
     const sellerName = normalizeSellerName(assignedEntry.seller.nombre) || await getSellerNameFromUser(assignedUser);
     const assignedBy = await getAssignedByName(req);
-    const meetingFields = {
-      Id: `${telefono}-${date}-${time}`,
-      Nombre: nombre,
-      'Tipo de Reunion': 'MEET',
-      ESTADO: 'Pendiente',
-      'Fase del Momento': normalizedPhase,
-      'Link de meet': meetLink,
-      'Logramos Registro?': false,
-      Fecha: startDateTime,
-      Duracion: parsedDuration,
-      'Google Calendar Event ID': calendarEvent.id,
-      ...(assignedBy ? { 'Asignado por': assignedBy } : {}),
-      Origen: 'API',
-      ...(sellerName ? { Vendedora: sellerName } : {}),
-      ...(client?.id ? { Cliente: [client.id] } : {})
-    };
+    let meeting;
+    try {
+      const client = await findOrCreateClient({ telefono, nombre, email });
+      const meetingFields = {
+        Id: `${telefono}-${date}-${time}`,
+        Nombre: nombre,
+        'Tipo de Reunion': 'MEET',
+        ESTADO: 'Pendiente',
+        'Fase del Momento': normalizedPhase,
+        'Link de meet': meetLink,
+        'Logramos Registro?': false,
+        Fecha: startDateTime,
+        Duracion: parsedDuration,
+        'Google Calendar Event ID': calendarEvent.id,
+        ...(assignedBy ? { 'Asignado por': assignedBy } : {}),
+        Origen: 'API',
+        ...(sellerName ? { Vendedora: sellerName } : {}),
+        ...(client?.id ? { Cliente: [client.id] } : {})
+      };
 
-    const meeting = await createMeetingWithSelectFallback(meetingFields);
+      meeting = await createMeeting(meetingFields);
+    } catch (error) {
+      await deleteCalendarEventSafely(assignedUser, calendarEvent.id);
+      throw error;
+    }
 
     return res.status(201).json({
       meetLink,
@@ -1468,8 +1456,31 @@ router.post('/reschedule', async (req, res) => {
       return res.status(409).json({ error: 'No active sellers available for the new slot' });
     }
 
-    const airtableBusyBySeller = await getAirtableBusyBySeller(eligibleSellers, date, { excludeRecordId: recordId });
-    const assignedEntry = await findAvailableUser(eligibleSellers, startDateTime, endDateTime, airtableBusyBySeller);
+    const canAssignSeller = await isRequestingUserManager(req);
+    const requestingSellerEntry = findRequestingSellerEntry(eligibleSellers, req);
+    let assignmentPool = eligibleSellers;
+
+    if (oldVendedora) {
+      const oldSellerEntry = findRequestedSellerEntry(eligibleSellers, { assignedSellerName: oldVendedora });
+      if (!oldSellerEntry) {
+        return res.status(409).json({ error: 'Current seller is not eligible for the requested slot' });
+      }
+
+      if (!canAssignSeller && !isSameSellerEntry(oldSellerEntry, requestingSellerEntry)) {
+        return res.status(403).json({ error: 'Only managers can reschedule another seller meeting' });
+      }
+
+      assignmentPool = [oldSellerEntry];
+    } else if (!canAssignSeller) {
+      if (!requestingSellerEntry) {
+        return res.status(409).json({ error: 'Requesting seller is not eligible for the requested slot' });
+      }
+
+      assignmentPool = [requestingSellerEntry];
+    }
+
+    const airtableBusyBySeller = await getAirtableBusyBySeller(assignmentPool, date, { excludeRecordId: recordId });
+    const assignedEntry = await findAvailableUser(assignmentPool, startDateTime, endDateTime, airtableBusyBySeller);
     if (!assignedEntry) {
       return res.status(409).json({ error: 'No sellers available for the requested time' });
     }
@@ -1491,36 +1502,39 @@ router.post('/reschedule', async (req, res) => {
     const meetLink = calendarEvent.hangoutLink ||
       calendarEvent.conferenceData?.entryPoints?.find((ep) => ep.entryPointType === 'video')?.uri || '';
 
+    const sellerName = normalizeSellerName(assignedEntry.seller.nombre) || await getSellerNameFromUser(assignedUser);
+    const assignedBy = await getAssignedByName(req);
+
+    try {
+      await updateMeeting(recordId, {
+        Fecha: startDateTime,
+        'Link de meet': meetLink,
+        'Google Calendar Event ID': calendarEvent.id,
+        ESTADO: 'Pendiente',
+        ...(assignedBy ? { 'Asignado por': assignedBy } : {}),
+        ...(sellerName ? { Vendedora: sellerName } : {})
+      });
+    } catch (error) {
+      await deleteCalendarEventSafely(assignedUser, calendarEvent.id);
+      throw error;
+    }
+
     if (oldCalendarEventId && oldVendedora) {
       try {
         const sellers = await listSellers();
         const oldSeller = sellers.find((s) =>
-          normalizeEmail(s.nombre || '') === normalizeEmail(oldVendedora) ||
-          (s.nombre || '').toLowerCase().includes((oldVendedora || '').toLowerCase()) ||
-          (oldVendedora || '').toLowerCase().includes((s.nombre || '').toLowerCase())
+          normalizeLookupValue(s.nombre || '') === normalizeLookupValue(oldVendedora) ||
+          normalizeLookupValue(s.nombre || '').includes(normalizeLookupValue(oldVendedora)) ||
+          normalizeLookupValue(oldVendedora).includes(normalizeLookupValue(s.nombre || ''))
         );
         if (oldSeller?.correo) {
           const oldUser = activeUsers.find((u) => normalizeEmail(u.email) === normalizeEmail(oldSeller.correo));
-          if (oldUser) {
-            await deleteCalendarEvent(oldUser, oldCalendarEventId);
-          }
+          await deleteCalendarEventSafely(oldUser, oldCalendarEventId);
         }
       } catch (deleteErr) {
-        console.warn('No se pudo eliminar el evento anterior del calendario:', deleteErr.message);
+        console.warn('No se pudo eliminar el evento anterior del calendario:', deleteErr.response?.data || deleteErr.message);
       }
     }
-
-    const sellerName = normalizeSellerName(assignedEntry.seller.nombre) || await getSellerNameFromUser(assignedUser);
-    const assignedBy = await getAssignedByName(req);
-
-    await updateMeetingWithSelectFallback(recordId, {
-      Fecha: startDateTime,
-      'Link de meet': meetLink,
-      'Google Calendar Event ID': calendarEvent.id,
-      ESTADO: 'Pendiente',
-      ...(assignedBy ? { 'Asignado por': assignedBy } : {}),
-      ...(sellerName ? { Vendedora: sellerName } : {})
-    });
 
     return res.json({
       meetLink,
