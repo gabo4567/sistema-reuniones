@@ -3,8 +3,11 @@ const { getActiveUsers, getAuthUserByEmail, listAuthUsers } = require('../servic
 const {
   createSeller,
   deactivateSeller,
+  getFirstAvailableColor,
   getSellerByEmail,
+  isColorUsedByAnotherSeller,
   listSellers,
+  normalizeHexColor,
   updateSeller
 } = require('../services/sellers.service');
 const { getDefaultWeeklySchedule, listWorkHours, saveWorkHours } = require('../services/work-hours.service');
@@ -23,6 +26,10 @@ function normalizeValue(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function hasAny(data, keys) {
+  return keys.some((key) => Object.prototype.hasOwnProperty.call(data, key));
+}
+
 function getRoleValue(role) {
   const roleValue = Array.isArray(role) ? role[0] : role;
   return String(roleValue || '').trim();
@@ -35,6 +42,11 @@ function isValidRole(role) {
 
 function isManagerRole(role) {
   return getRoleValue(role).toLowerCase() === 'gerente';
+}
+
+function getRequestedColor(body = {}) {
+  if (!hasAny(body, ['color', 'Color'])) return '';
+  return normalizeHexColor(body.color || body.Color);
 }
 
 function withRoleConsistency(data = {}, currentSeller = {}) {
@@ -110,6 +122,10 @@ function validateCreateSeller(body = {}) {
     return 'rol must be Vendedora or Gerente';
   }
 
+  if (hasAny(body, ['color', 'Color']) && !getRequestedColor(body)) {
+    return 'color must be a valid #RRGGBB hex value';
+  }
+
   return '';
 }
 
@@ -121,6 +137,10 @@ function validateUpdateSeller(body = {}) {
 
   if (!isValidRole(body.rol || body.Rol)) {
     return 'rol must be Vendedora or Gerente';
+  }
+
+  if (hasAny(body, ['color', 'Color']) && !getRequestedColor(body)) {
+    return 'color must be a valid #RRGGBB hex value';
   }
 
   return '';
@@ -136,6 +156,8 @@ function hasEditableFields(body = {}) {
     'Telefono',
     'correo',
     'Correo',
+    'color',
+    'Color',
     'rol',
     'Rol',
     'activa',
@@ -242,6 +264,7 @@ router.post('/sellers', async (req, res) => {
     const email = req.body.correo || req.body.Correo;
     const sellerId = req.body.id || req.body.Id;
     const sellers = await listSellers();
+    const requestedColor = getRequestedColor(req.body);
     const existingSeller = sellers.find((seller) => normalizeEmail(seller.correo) === normalizeEmail(email));
     if (existingSeller) {
       return res.status(409).json({
@@ -253,6 +276,21 @@ router.post('/sellers', async (req, res) => {
           correo: existingSeller.correo,
           rol: existingSeller.rol
         }
+      });
+    }
+
+    const nextColor = requestedColor || getFirstAvailableColor(sellers);
+    if (!nextColor) {
+      return res.status(409).json({
+        error: 'No available seller colors',
+        message: 'No quedan colores disponibles para asignar a este usuario.'
+      });
+    }
+
+    if (isColorUsedByAnotherSeller(sellers, nextColor)) {
+      return res.status(409).json({
+        error: 'Seller color already exists',
+        message: 'Ese color ya esta asignado a otro usuario.'
       });
     }
 
@@ -271,7 +309,10 @@ router.post('/sellers', async (req, res) => {
       });
     }
 
-    const seller = await createSeller(withRoleConsistency(req.body));
+    const seller = await createSeller(withRoleConsistency({
+      ...req.body,
+      color: nextColor
+    }));
     const workHours = await saveWorkHours(seller.recordId, {
       weekly: getDefaultWeeklySchedule()
     });
@@ -303,6 +344,14 @@ router.patch('/sellers/:id', async (req, res) => {
     const currentSeller = sellers.find((seller) => seller.recordId === req.params.id);
     if (!currentSeller) {
       return res.status(404).json({ error: 'Seller not found' });
+    }
+
+    const requestedColor = getRequestedColor(req.body);
+    if (requestedColor && isColorUsedByAnotherSeller(sellers, requestedColor, req.params.id)) {
+      return res.status(409).json({
+        error: 'Seller color already exists',
+        message: 'Ese color ya esta asignado a otro usuario.'
+      });
     }
 
     const nextEmail = req.body.correo || req.body.Correo;
