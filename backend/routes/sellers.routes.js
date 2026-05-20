@@ -38,7 +38,19 @@ function isManagerRole(role) {
 }
 
 function withRoleConsistency(data = {}, currentSeller = {}) {
-  return data;
+  const nextRole = data.rol || data.Rol || currentSeller.rol;
+  if (!isManagerRole(nextRole)) return data;
+  if (!Object.prototype.hasOwnProperty.call(data, 'puede_recibir_reuniones') &&
+      !Object.prototype.hasOwnProperty.call(data, 'Puede recibir reuniones')) {
+    return data;
+  }
+
+  return {
+    ...data,
+    puede_recibir_reuniones: Object.prototype.hasOwnProperty.call(data, 'puede_recibir_reuniones')
+      ? data.puede_recibir_reuniones
+      : data['Puede recibir reuniones']
+  };
 }
 
 function buildSellerAuthStatus(seller, authUser) {

@@ -1523,7 +1523,7 @@
     }
 
     if (canUseCustomWorkHours && workHoursList) {
-      renderWeeklyWorkHours(container, getDefaultWeeklyWorkHours());
+      workHoursList.innerHTML = '<div class="fd-empty-state">Cargando horario...</div>';
       fetchWorkHours(usuario.recordId)
         .then((workHours) => {
           renderWeeklyWorkHours(container, workHours?.weekly || getDefaultWeeklyWorkHours());
@@ -1646,11 +1646,16 @@
       setRoleActionMessage(panel, nextValue ? 'Activando recepcion de reuniones...' : 'Pausando recepcion de reuniones...');
 
       try {
-        await updateSellerAvailability(usuario.recordId, nextValue);
-        usuario.puede_recibir_reuniones = nextValue;
-        setReceiveMeetingsLabel(panel, nextValue);
+        const savedSeller = await updateSellerAvailability(usuario.recordId, nextValue);
+        const savedValue = savedSeller?.puede_recibir_reuniones === true;
+        if (savedValue !== nextValue) {
+          throw new Error('Reception value was not persisted');
+        }
+
+        usuario.puede_recibir_reuniones = savedValue;
+        setReceiveMeetingsLabel(panel, savedValue);
         renderCurrentUser(panel, currentUser);
-        setRoleActionMessage(panel, nextValue ? 'Ya puedes recibir reuniones.' : 'Recepcion de reuniones pausada.');
+        setRoleActionMessage(panel, savedValue ? 'Ya puedes recibir reuniones.' : 'Recepcion de reuniones pausada.');
       } catch (error) {
         console.error('Extension FD: error al actualizar recepcion de reuniones', error);
         setReceiveMeetingsLabel(panel, !nextValue);
