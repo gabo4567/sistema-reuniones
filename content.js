@@ -1050,6 +1050,10 @@
     return normalizeUserRole(role) === 'gerente';
   }
 
+  function isTeamSellerRole(role) {
+    return normalizeUserRole(role) === 'vendedora';
+  }
+
   function getPanelRole(panel) {
     return panel?.dataset.currentUserRole || '';
   }
@@ -1833,17 +1837,19 @@
           return [];
         })
       ]);
-      if (!sellers.length) {
+      const teamSellers = sellers.filter((seller) => isTeamSellerRole(seller.rol));
+
+      if (!teamSellers.length) {
         listEl.innerHTML = '<div class="fd-empty-state">Sin vendedoras registradas.</div>';
         return;
       }
 
-      const readyCount = sellers.filter((seller) => seller.auth?.ready).length;
-      const pendingCount = sellers.length - readyCount;
+      const readyCount = teamSellers.filter((seller) => seller.auth?.ready).length;
+      const pendingCount = teamSellers.length - readyCount;
       const readinessHTML = `
         <div class="fd-team-readiness ${pendingCount ? 'fd-team-readiness--warning' : 'fd-team-readiness--ready'}">
           <div class="fd-team-readiness-title">Estado de autorizacion Google</div>
-          <div class="fd-team-readiness-text">${readyCount}/${sellers.length} usuarios listos para Calendar${pendingCount ? `. Faltan ${pendingCount}.` : '.'}</div>
+          <div class="fd-team-readiness-text">${readyCount}/${teamSellers.length} vendedoras listas para Calendar${pendingCount ? `. Faltan ${pendingCount}.` : '.'}</div>
         </div>
         ${workHoursLoadError ? `
         <div class="fd-team-readiness fd-team-readiness--warning">
@@ -1859,7 +1865,7 @@
         ` : ''}
       `;
 
-      listEl.innerHTML = readinessHTML + sellers.map(seller => {
+      listEl.innerHTML = readinessHTML + teamSellers.map(seller => {
         const activa = seller.activa;
         const recibe = seller.puede_recibir_reuniones;
         const auth = seller.auth || {};
