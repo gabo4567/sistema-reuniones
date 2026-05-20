@@ -2087,19 +2087,55 @@
   color: var(--fd-text-primary);
 }
 
-.fd-seller-block-row {
+.fd-seller-blocks-list {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 8px;
+  min-width: 0;
 }
 
-.fd-seller-block-row .fd-seller-work-hours {
+.fd-seller-block-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--fd-border-subtle);
+  border-radius: var(--fd-radius-sm);
+  background: var(--fd-bg-card);
+}
+
+.fd-seller-block-content {
   flex: 1;
+  min-width: 0;
+  color: var(--fd-text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.fd-seller-block-content strong,
+.fd-seller-block-content span {
+  display: block;
+}
+
+.fd-seller-block-content strong {
+  color: var(--fd-text-primary);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.fd-seller-block-content span {
+  margin-top: 2px;
+  overflow-wrap: anywhere;
 }
 
 .fd-block-delete-btn {
   flex: 0 0 auto;
+  width: auto;
+  min-height: 28px;
   padding: 4px 8px;
   border-radius: var(--fd-radius-sm);
   border: 1px solid var(--fd-error-border);
@@ -2109,6 +2145,14 @@
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
+}
+
+.fd-role-card .fd-block-delete-btn {
+  width: auto;
+  min-height: 28px;
+  background: var(--fd-error-bg);
+  color: var(--fd-error);
+  border-color: var(--fd-error-border);
 }
 
 .fd-block-delete-btn:hover:not(:disabled) {

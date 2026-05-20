@@ -1784,8 +1784,9 @@
       <div class="fd-seller-blocks-list">
         ${blocks.map((block) => `
           <div class="fd-seller-block-row">
-            <div class="fd-seller-work-hours">
-              <strong>${escapeHtml(formatSellerBlockRange(block))}</strong>${block.motivo ? ` - ${escapeHtml(block.motivo)}` : ''}
+            <div class="fd-seller-block-content">
+              <strong>${escapeHtml(formatSellerBlockRange(block))}</strong>
+              ${block.motivo ? `<span>${escapeHtml(block.motivo)}</span>` : ''}
             </div>
             ${canDelete ? `<button type="button" class="fd-block-delete-btn" data-block-id="${escapeHtml(block.recordId || '')}">Quitar</button>` : ''}
           </div>
