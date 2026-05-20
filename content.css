@@ -1446,11 +1446,13 @@
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  border: 1px solid var(--fd-border-default);
+  border: 1px solid color-mix(in srgb, var(--seller-color, var(--fd-accent)) 82%, #ffffff);
   border-radius: 999px;
-  background: var(--seller-color, var(--fd-bg-input));
-  color: var(--fd-text-primary);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+  background: color-mix(in srgb, var(--seller-color, var(--fd-accent)) 86%, #020617);
+  color: #ffffff;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--seller-color, var(--fd-accent)) 24%, transparent),
+    0 4px 10px rgba(0, 0, 0, 0.28);
   cursor: pointer;
   font: inherit;
   font-size: 11px;
@@ -1462,49 +1464,64 @@
 
 .fd-seller-bubble:hover,
 .fd-seller-bubble:focus-visible {
-  border-color: var(--fd-accent);
-  box-shadow: 0 0 0 3px var(--fd-accent-bg);
+  border-color: #ffffff;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--seller-color, var(--fd-accent)) 44%, transparent),
+    0 6px 14px rgba(0, 0, 0, 0.32);
   outline: none;
   transform: translateY(-1px);
 }
 
 .fd-seller-bubble--recommended {
-  border-color: var(--fd-accent);
+  border-color: #ffffff;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--seller-color, var(--fd-accent)) 48%, transparent),
+    0 4px 10px rgba(0, 0, 0, 0.3);
 }
 
 .fd-seller-bubble--selected {
-  background: var(--fd-accent) !important;
-  border-color: var(--fd-accent) !important;
+  background: var(--seller-color, var(--fd-accent)) !important;
+  border-color: #ffffff !important;
   color: #ffffff !important;
-  box-shadow: 0 0 0 3px var(--fd-accent-bg);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--seller-color, var(--fd-accent)) 58%, transparent),
+    0 6px 14px rgba(0, 0, 0, 0.34);
 }
 
 /* ─── MESSAGES ────────────────────────────────────────────────────────────── */
 @media (prefers-color-scheme: light) {
   #custom-side-panel .fd-seller-bubble {
-    background: color-mix(in srgb, var(--seller-color, var(--fd-accent)) 16%, #ffffff);
-    border-color: color-mix(in srgb, var(--seller-color, var(--fd-accent)) 46%, rgba(17, 24, 39, 0.32));
-    color: #0f172a;
-    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18), inset 0 0 0 1px rgba(255, 255, 255, 0.78);
+    background: color-mix(in srgb, var(--seller-color, var(--fd-accent)) 92%, #ffffff);
+    border-color: color-mix(in srgb, var(--seller-color, var(--fd-accent)) 80%, #0f172a);
+    color: #ffffff;
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--seller-color, var(--fd-accent)) 20%, transparent),
+      0 2px 6px rgba(15, 23, 42, 0.22);
   }
 
   #custom-side-panel .fd-seller-bubble:hover,
   #custom-side-panel .fd-seller-bubble:focus-visible {
-    background: color-mix(in srgb, var(--seller-color, var(--fd-accent)) 24%, #ffffff);
-    border-color: var(--fd-accent);
-    box-shadow: 0 0 0 3px var(--fd-accent-bg), 0 2px 6px rgba(15, 23, 42, 0.18);
+    background: var(--seller-color, var(--fd-accent));
+    border-color: #ffffff;
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--seller-color, var(--fd-accent)) 36%, transparent),
+      0 4px 10px rgba(15, 23, 42, 0.24);
   }
 
   #custom-side-panel .fd-seller-bubble--recommended {
-    border-color: var(--fd-accent);
-    box-shadow: 0 0 0 1px var(--fd-accent-border), 0 1px 3px rgba(15, 23, 42, 0.16);
+    border-color: #ffffff;
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--seller-color, var(--fd-accent)) 44%, transparent),
+      0 2px 6px rgba(15, 23, 42, 0.22);
   }
 
   #custom-side-panel .fd-seller-bubble--selected {
-    background: var(--fd-accent) !important;
-    border-color: var(--fd-accent) !important;
+    background: var(--seller-color, var(--fd-accent)) !important;
+    border-color: #ffffff !important;
     color: #ffffff !important;
-    box-shadow: 0 0 0 3px var(--fd-accent-bg), 0 2px 6px rgba(15, 23, 42, 0.2);
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--seller-color, var(--fd-accent)) 50%, transparent),
+      0 4px 10px rgba(15, 23, 42, 0.26);
   }
 }
 
